@@ -1,10 +1,12 @@
 #include <GLFW/glfw3.h>
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
+#include <glm.hpp>
+#include <gtc/matrix_transform.hpp>
 #include <iostream>
+#define M_PI 3.1415
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void mouse_callback(GLFWwindow* window, double xpos, double ypos);
+void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
 void processInput(GLFWwindow* window);
 void renderScene();
 
@@ -28,6 +30,7 @@ Vec3 cameraFront = { 0.0f, 0.0f, -1.0f };
 Vec3 cameraUp = { 0.0f, 1.0f, 0.0f };
 
 bool firstMouse = true;
+bool mousePressed = false;
 float lastX = SCR_WIDTH / 2.0f;
 float lastY = SCR_HEIGHT / 2.0f;
 float yaw = -90.0f;
@@ -36,6 +39,23 @@ float fov = 45.0f;
 
 float deltaTime = 0.0f;
 float lastFrame = 0.0f;
+
+void mouse_button_callback(GLFWwindow* window, int button, int action, int mods) {
+    if (button == GLFW_MOUSE_BUTTON_RIGHT) {
+        if (action == GLFW_PRESS) {
+            mousePressed = true;
+        }
+        else if (action == GLFW_RELEASE) {
+            mousePressed = false;
+            firstMouse = true;
+        }
+    }
+}
+
+void scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
+    // Zmiana odleg≥oúci kamery za pomocπ scrolla
+    cameraPos = cameraPos + cameraFront * static_cast<float>(yoffset) * 0.5f;
+}
 
 int main()
 {
@@ -51,9 +71,12 @@ int main()
     glfwMakeContextCurrent(window);
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
     glfwSetCursorPosCallback(window, mouse_callback);
-    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+    glfwSetMouseButtonCallback(window, mouse_button_callback);
+    glfwSetScrollCallback(window, scroll_callback); // Dodanie obs≥ugi scrolla
+    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
 
-    glEnable(GL_DEPTH_TEST);
+    glEnable(GL_DEPTH_TEST | GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
     while (!glfwWindowShouldClose(window))
     {
@@ -63,6 +86,7 @@ int main()
 
         processInput(window);
 
+        glClearColor(0.4f, 0.4f, 0.4f, 0.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         glm::mat4 projection = glm::perspective(glm::radians(fov), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
@@ -89,10 +113,14 @@ int main()
 void processInput(GLFWwindow* window)
 {
     float cameraSpeed = 2.5f * deltaTime;
+
+    // Zmiana wysokoúci kamery za pomocπ klawiszy W i S
     if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
-        cameraPos = cameraPos + cameraFront * cameraSpeed;
+        cameraPos.y += cameraSpeed;
     if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
-        cameraPos = cameraPos - cameraFront * cameraSpeed;
+        cameraPos.y -= cameraSpeed;
+
+    // Poruszanie kamerπ w p≥aszczyünie XZ za pomocπ klawiszy A i D
     if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
         cameraPos = cameraPos - cameraFront.cross(cameraUp).normalize() * cameraSpeed;
     if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
@@ -101,6 +129,9 @@ void processInput(GLFWwindow* window)
 
 void mouse_callback(GLFWwindow* window, double xpos, double ypos)
 {
+    if (!mousePressed)
+        return;
+
     if (firstMouse)
     {
         lastX = xpos;
@@ -140,16 +171,17 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height)
 void renderScene()
 {
     glBegin(GL_QUADS);
-    glColor3f(1.0f, 0.0f, 0.0f);
+    glColor3f(1.0f, 0.0f, 1.0f);
     glVertex3f(-0.5f, -0.5f, -0.5f);
     glVertex3f(0.5f, -0.5f, -0.5f);
     glVertex3f(0.5f, 0.5f, -0.5f);
     glVertex3f(-0.5f, 0.5f, -0.5f);
 
-    glColor3f(0.0f, 1.0f, 0.0f);
+    glColor3f(0.0f, 0.0f, 1.0f);
     glVertex3f(-0.5f, -0.5f, 0.5f);
     glVertex3f(0.5f, -0.5f, 0.5f);
     glVertex3f(0.5f, 0.5f, 0.5f);
     glVertex3f(-0.5f, 0.5f, 0.5f);
+
     glEnd();
 }
