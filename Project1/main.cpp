@@ -14,11 +14,6 @@ void renderScene();
 // do ogarniecia
 void drawCuboid(float width, float height, float depth);
 void drawOrangeSphereWithBlackEdges(float radius, int segments);
-void drawIcosahedron(float radius);
-
-const unsigned int SCR_WIDTH = 800;
-const unsigned int SCR_HEIGHT = 600;
-
 struct Vec3 {
     float x, y, z;
     Vec3 operator+(const Vec3& other) const { return { x + other.x, y + other.y, z + other.z }; }
@@ -30,6 +25,16 @@ struct Vec3 {
         return { x / len, y / len, z / len };
     }
 };
+struct node {
+    Vec3 position = { 0, 0, 0 }; // Domyœlnie ustawione na (0,0,0)
+    Vec3 velocity = { 0, 0, 0 };
+};
+std::vector<node> nodes;
+void drawIcosahedron(float radius, std::vector<node>);
+
+const unsigned int SCR_WIDTH = 800;
+const unsigned int SCR_HEIGHT = 600;
+
 
 
 Vec3 cameraPos = { 0.0f, 0.0f, 3.0f };
@@ -43,9 +48,14 @@ float lastY = SCR_HEIGHT / 2.0f;
 float yaw = -90.0f;
 float pitch = 0.0f;
 float fov = 45.0f;
-
 float deltaTime = 0.0f;
 float lastFrame = 0.0f;
+bool first = true;
+
+float radius = 0.5f;
+const float H_ANGLE = M_PI / 180 * 72; // 72 stopni w radianach
+const float V_ANGLE = atanf(1.0f / 2); // K¹t wierzcho³ka
+
 
 void mouse_button_callback(GLFWwindow* window, int button, int action, int mods) {
     if (button == GLFW_MOUSE_BUTTON_RIGHT) {
@@ -202,9 +212,44 @@ void renderScene()
     //glVertex3f(0.5f, 0.5f, -0.5f);
     //glVertex3f(-0.5f, 0.5f, -0.5f); 
     //glEnd();
+    
+    // Ÿród³o dŸwiêku
+        /////////////////////////////////////////////////// proba
+        // Wierzcho³ki dwudziestoœcianu
+    // zmieniæ dt by zaczê³o siê rozszerzaæ
+    float dt = 0.05;
+    if (first) {
+        node buf;
+        buf.position = { 0.0f, radius, 0.0f };
+        nodes.push_back(buf);
 
-    drawIcosahedron(0.5f);
-    glColor4f(0.0f, 0.0f, 1.0f, 0.3f);
+        for (int i = 1; i <= 5; ++i) {
+            buf.position = { radius * cos(V_ANGLE) * cos(i * H_ANGLE), radius * sin(V_ANGLE), radius * cos(V_ANGLE) * sin(i * H_ANGLE) };
+            nodes.push_back(buf);
+        }
+        for (int i = 6; i <= 10; ++i) {
+
+            buf.position = { radius * cos(V_ANGLE) * cos((i + 0.5f) * H_ANGLE) , -radius * sin(V_ANGLE), radius * cos(V_ANGLE) * sin((i + 0.5f) * H_ANGLE) };
+            nodes.push_back(buf);
+        }
+
+        // Dolny wierzcho³ek
+        buf.position = { 0.0f, -radius, 0.0f };
+        nodes.push_back(buf);
+        first = false;
+    }
+    for (int i = 0; i < nodes.size(); ++i) {
+        nodes[i].velocity = nodes[i].position*0.1;
+    }
+    for (int i = 0; i < nodes.size(); ++i) {
+        nodes[i].position = nodes[i].position+nodes[i].velocity*dt;
+    }
+
+    //////////////////////////////////////
+    drawIcosahedron(0.5f, nodes);
+    //basen
+    //glDisable(GL_DEPTH_TEST);
+    glColor4f(0.0f, 0.0f, 1.0f, 0.1f);
     drawCuboid(8.0f, 6.0f, 6.0f);
 
     //glDisable(GL_BLEND); // Wy³¹cz blending po zakoñczeniu rysowania
@@ -320,12 +365,12 @@ void drawOrangeSphereWithBlackEdges(float radius, int segments) {
         }
     }
 }
-void drawIcosahedron(float radius) {
-    const float PI = 3.14159265358979323846f;
-    const float H_ANGLE = PI / 180 * 72; // 72 stopni w radianach
+void drawIcosahedron(float radius, std::vector<node> nodes) {
+    /*
+    //float radius = 0.5f;
+    const float H_ANGLE = M_PI / 180 * 72; // 72 stopni w radianach
     const float V_ANGLE = atanf(1.0f / 2); // K¹t wierzcho³ka
 
-    // Wierzcho³ki dwudziestoœcianu
     float vertices[12][3];
 
     // Górny wierzcho³ek
@@ -348,7 +393,7 @@ void drawIcosahedron(float radius) {
         vertices[i + 5][1] = -radius * sin(V_ANGLE);
         vertices[i + 5][2] = radius * cos(V_ANGLE) * sin((i + 0.5f) * H_ANGLE);
     }
-
+    */
     // Indeksy trójk¹tów
     int indices[20][3] = {
         {0, 1, 2}, {0, 2, 3}, {0, 3, 4}, {0, 4, 5}, {0, 5, 1},
@@ -356,13 +401,13 @@ void drawIcosahedron(float radius) {
         {1, 2, 6}, {2, 3, 7}, {3, 4, 8}, {4, 5, 9}, {5, 1, 10},
         {6, 7, 2}, {7, 8, 3}, {8, 9, 4}, {9, 10, 5}, {10, 6, 1}
     };
-
+    //std::cout << nodes[3].position.x << std::endl;
     // Rysowanie œcian (pomarañczowe)
     glColor4f(1.0f, 0.5f, 0.0f, 0.5f); // Pomarañczowy kolor
     glBegin(GL_TRIANGLES);
     for (int i = 0; i < 20; ++i) {
         for (int j = 0; j < 3; ++j) {
-            glVertex3f(vertices[indices[i][j]][0], vertices[indices[i][j]][1], vertices[indices[i][j]][2]);
+            glVertex3f(nodes[indices[i][j]].position.x, nodes[indices[i][j]].position.y, nodes[indices[i][j]].position.z);
         }
     }
     glEnd();
@@ -373,9 +418,11 @@ void drawIcosahedron(float radius) {
     for (int i = 0; i < 20; ++i) {
         for (int j = 0; j < 3; ++j) {
             int current = indices[i][j];
-            int next = indices[i][(j + 1) % 3]; // Nastêpny wierzcho³ek w trójk¹cie
-            glVertex3f(vertices[current][0], vertices[current][1], vertices[current][2]);
-            glVertex3f(vertices[next][0], vertices[next][1], vertices[next][2]);
+           int next = indices[i][(j + 1) % 3]; // Nastêpny wierzcho³ek w trójk¹cie
+            //glVertex3f(vertices[current][0], vertices[current][1], vertices[current][2]);
+            glVertex3f(nodes[current].position.x, nodes[current].position.y, nodes[current].position.z);
+            //glVertex3f(vertices[next][0], vertices[next][1], vertices[next][2]);
+            glVertex3f(nodes[next].position.x, nodes[next].position.y, nodes[next].position.z);
         }
     }
     glEnd();
