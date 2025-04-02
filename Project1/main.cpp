@@ -217,7 +217,7 @@ void renderScene()
         /////////////////////////////////////////////////// proba
         // Wierzcho³ki dwudziestoœcianu
     // zmieniæ dt by zaczê³o siê rozszerzaæ
-    float dt = 0.05;
+    float dt = 0.01;
     if (first) {
         node buf;
         buf.position = { 0.0f, radius, 0.0f };
