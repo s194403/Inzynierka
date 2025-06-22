@@ -32,6 +32,35 @@ struct node {
 std::vector<node> nodes;
 void drawIcosahedron(float radius, std::vector<node>);
 
+void updatePhysics(float dt) {
+    const float cuboidHalfWidth = 4.0f;
+    const float cuboidHalfHeight = 3.0f;
+    const float cuboidHalfDepth = 3.0f;
+    const float elasticity = 1.0f; // wspó³czynnik sprê¿ystoœci (0.8 = 80% energii zachowane)
+
+    for (auto& node : nodes) {
+        // Aktualizacja pozycji
+        node.position = node.position + node.velocity * dt;
+
+        // Sprawdzanie kolizji ze œcianami prostopad³oœcianu i odbicia
+        if (node.position.x <= -cuboidHalfWidth || node.position.x >= cuboidHalfWidth) {
+            node.velocity.x = -node.velocity.x * elasticity;
+            // Korekta pozycji aby nie utkn¹æ w œcianie
+            node.position.x = (node.position.x < 0) ? -cuboidHalfWidth + 0.001f : cuboidHalfWidth - 0.001f;
+        }
+
+        if (node.position.y <= -cuboidHalfHeight || node.position.y >= cuboidHalfHeight) {
+            node.velocity.y = -node.velocity.y * elasticity;
+            node.position.y = (node.position.y < 0) ? -cuboidHalfHeight + 0.001f : cuboidHalfHeight - 0.001f;
+        }
+
+        if (node.position.z <= -cuboidHalfDepth || node.position.z >= cuboidHalfDepth) {
+            node.velocity.z = -node.velocity.z * elasticity;
+            node.position.z = (node.position.z < 0) ? -cuboidHalfDepth + 0.001f : cuboidHalfDepth - 0.001f;
+        }
+    }
+}
+
 const unsigned int SCR_WIDTH = 800;
 const unsigned int SCR_HEIGHT = 600;
 
@@ -237,13 +266,23 @@ void renderScene()
         buf.position = { 0.0f, -radius, 0.0f };
         nodes.push_back(buf);
         first = false;
+
+        for (int i = 0; i < nodes.size(); ++i) {
+            nodes[i].velocity = nodes[i].position * 0.2;
+        }
     }
+
+    /*
     for (int i = 0; i < nodes.size(); ++i) {
         nodes[i].velocity = nodes[i].position*0.1;
     }
+    
     for (int i = 0; i < nodes.size(); ++i) {
         nodes[i].position = nodes[i].position+nodes[i].velocity*dt;
     }
+    */
+
+    updatePhysics(dt);
 
     //////////////////////////////////////
     drawIcosahedron(0.5f, nodes);
