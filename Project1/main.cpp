@@ -36,7 +36,7 @@ void updatePhysics(float dt) {
     const float cuboidHalfWidth = 4.0f;
     const float cuboidHalfHeight = 3.0f;
     const float cuboidHalfDepth = 3.0f;
-    const float elasticity = 1.0f; // wspó³czynnik sprê¿ystoœci (0.8 = 80% energii zachowane)
+    const float elasticity = 0.8f; // wspó³czynnik sprê¿ystoœci(0.8 = 80 % energii zachowane)
 
     for (auto& node : nodes) {
         // Aktualizacja pozycji
@@ -66,16 +66,16 @@ const unsigned int SCR_HEIGHT = 600;
 
 
 
-Vec3 cameraPos = { 0.0f, 0.0f, 3.0f };
-Vec3 cameraFront = { 0.0f, 0.0f, -1.0f };
+Vec3 cameraPos = { 10.0f, 10.0f, 10.0f };
+Vec3 cameraFront = { -0.8f, -0.8f, -0.8f };
 Vec3 cameraUp = { 0.0f, 1.0f, 0.0f };
 
 bool firstMouse = true;
 bool mousePressed = false;
 float lastX = SCR_WIDTH / 2.0f;
 float lastY = SCR_HEIGHT / 2.0f;
-float yaw = -90.0f;
-float pitch = 0.0f;
+float yaw = -144.0f;
+float pitch = -35.0f;
 float fov = 45.0f;
 float deltaTime = 0.0f;
 float lastFrame = 0.0f;
@@ -100,7 +100,7 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
     // Zmiana odleg³oœci kamery za pomoc¹ scrolla
-    cameraPos = cameraPos + cameraFront * static_cast<float>(yoffset) * 0.5f;
+    cameraPos = cameraPos + cameraFront * static_cast<float>(yoffset) * 1.5f;
 }
 
 int main()
