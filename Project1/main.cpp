@@ -25,6 +25,13 @@ struct Vec3 {
         return { x / len, y / len, z / len };
     }
 };
+
+struct Cuboid_dimensions {
+    float width;
+    float height;
+    float depth;
+};
+
 struct node {
     Vec3 position = { 0, 0, 0 }; // Domyœlnie ustawione na (0,0,0)
     Vec3 velocity = { 0, 0, 0 };
@@ -32,10 +39,10 @@ struct node {
 std::vector<node> nodes;
 void drawIcosahedron(float radius, std::vector<node>);
 
-void updatePhysics(float dt) {
-    const float cuboidHalfWidth = 4.0f;
-    const float cuboidHalfHeight = 3.0f;
-    const float cuboidHalfDepth = 3.0f;
+void updatePhysics(float dt, float cubeWidth, float cubeHeight, float cubeDepth) {
+    const float cuboidHalfWidth = cubeWidth / 2.0f;
+    const float cuboidHalfHeight = cubeHeight / 2.0f;
+    const float cuboidHalfDepth = cubeDepth / 2.0f;
     const float elasticity = 0.8f; // wspó³czynnik sprê¿ystoœci(0.8 = 80 % energii zachowane)
 
     for (auto& node : nodes) {
@@ -120,6 +127,8 @@ int main()
     glfwSetMouseButtonCallback(window, mouse_button_callback);
     glfwSetScrollCallback(window, scroll_callback); // Dodanie obs³ugi scrolla
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+
+    
 
     //glEnable(GL_DEPTH_TEST); // wazne ???? 
     //glEnable(GL_DEPTH_TEST || GL_BLEND);
@@ -282,14 +291,20 @@ void renderScene()
     }
     */
 
-    updatePhysics(dt);
+    //dodanie prostopadloscianu i jego wymiarow
+    Cuboid_dimensions Cube;
+    Cube.width = 8.0f;
+    Cube.height = 6.0f;
+    Cube.depth = 10.0f;
+
+    updatePhysics(dt, Cube.width, Cube.height, Cube.depth);
 
     //////////////////////////////////////
     drawIcosahedron(0.5f, nodes);
     //basen
     //glDisable(GL_DEPTH_TEST);
     glColor4f(0.0f, 0.0f, 1.0f, 0.1f);
-    drawCuboid(8.0f, 6.0f, 6.0f);
+    drawCuboid(Cube.width, Cube.height, Cube.depth);
 
     //glDisable(GL_BLEND); // Wy³¹cz blending po zakoñczeniu rysowania
     //drawIcosahedron(0.5f);
