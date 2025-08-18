@@ -33,7 +33,7 @@ struct Cuboid_dimensions {
 };
 
 struct node {
-    Vec3 position = { 0, 0, 0 }; // Domyœlnie ustawione na (0,0,0)
+    Vec3 position = { 0, 0, 0 }; // DomyÅ“lnie ustawione na (0,0,0)
     Vec3 velocity = { 0, 0, 0 };
 };
 std::vector<node> nodes;
@@ -43,16 +43,16 @@ void updatePhysics(float dt, float cubeWidth, float cubeHeight, float cubeDepth)
     const float cuboidHalfWidth = cubeWidth / 2.0f;
     const float cuboidHalfHeight = cubeHeight / 2.0f;
     const float cuboidHalfDepth = cubeDepth / 2.0f;
-    const float elasticity = 0.8f; // wspó³czynnik sprê¿ystoœci(0.8 = 80 % energii zachowane)
+    const float elasticity = 0.8f; // wspÃ³Â³czynnik sprÃªÂ¿ystoÅ“ci(0.8 = 80 % energii zachowane)
 
     for (auto& node : nodes) {
         // Aktualizacja pozycji
         node.position = node.position + node.velocity * dt;
 
-        // Sprawdzanie kolizji ze œcianami prostopad³oœcianu i odbicia
+        // Sprawdzanie kolizji ze Å“cianami prostopadÂ³oÅ“cianu i odbicia
         if (node.position.x <= -cuboidHalfWidth || node.position.x >= cuboidHalfWidth) {
             node.velocity.x = -node.velocity.x * elasticity;
-            // Korekta pozycji aby nie utkn¹æ w œcianie
+            // Korekta pozycji aby nie utknÂ¹Ã¦ w Å“cianie
             node.position.x = (node.position.x < 0) ? -cuboidHalfWidth + 0.001f : cuboidHalfWidth - 0.001f;
         }
 
@@ -90,7 +90,7 @@ bool first = true;
 
 float radius = 0.5f;
 const float H_ANGLE = M_PI / 180 * 72; // 72 stopni w radianach
-const float V_ANGLE = atanf(1.0f / 2); // K¹t wierzcho³ka
+const float V_ANGLE = atanf(1.0f / 2); // KÂ¹t wierzchoÂ³ka
 
 
 void mouse_button_callback(GLFWwindow* window, int button, int action, int mods) {
@@ -106,7 +106,7 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 }
 
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
-    // Zmiana odleg³oœci kamery za pomoc¹ scrolla
+    // Zmiana odlegÂ³oÅ“ci kamery za pomocÂ¹ scrolla
     cameraPos = cameraPos + cameraFront * static_cast<float>(yoffset) * 1.5f;
 }
 
@@ -125,7 +125,7 @@ int main()
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
     glfwSetCursorPosCallback(window, mouse_callback);
     glfwSetMouseButtonCallback(window, mouse_button_callback);
-    glfwSetScrollCallback(window, scroll_callback); // Dodanie obs³ugi scrolla
+    glfwSetScrollCallback(window, scroll_callback); // Dodanie obsÂ³ugi scrolla
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
 
     
@@ -170,13 +170,13 @@ void processInput(GLFWwindow* window)
 {
     float cameraSpeed = 2.5f * deltaTime;
 
-    // Zmiana wysokoœci kamery za pomoc¹ klawiszy W i S
+    // Zmiana wysokoÅ“ci kamery za pomocÂ¹ klawiszy W i S
     if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
         cameraPos.y += cameraSpeed;
     if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
         cameraPos.y -= cameraSpeed;
 
-    // Poruszanie kamer¹ w p³aszczyŸnie XZ za pomoc¹ klawiszy A i D
+    // Poruszanie kamerÂ¹ w pÂ³aszczyÅ¸nie XZ za pomocÂ¹ klawiszy A i D
     if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
         cameraPos = cameraPos - cameraFront.cross(cameraUp).normalize() * cameraSpeed;
     if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
@@ -226,8 +226,8 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height)
 
 void renderScene()
 {
-    glEnable(GL_BLEND); // W³¹cz blending (mieszanie kolorów)
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA); // Ustaw funkcjê mieszania
+    glEnable(GL_BLEND); // WÂ³Â¹cz blending (mieszanie kolorÃ³w)
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA); // Ustaw funkcjÃª mieszania
     //glEnable(GL_DEPTH_TEST); // moze wazne
 
     //glBegin(GL_QUADS);
@@ -251,10 +251,10 @@ void renderScene()
     //glVertex3f(-0.5f, 0.5f, -0.5f); 
     //glEnd();
     
-    // Ÿród³o dŸwiêku
+    // Å¸rÃ³dÂ³o dÅ¸wiÃªku
         /////////////////////////////////////////////////// proba
-        // Wierzcho³ki dwudziestoœcianu
-    // zmieniæ dt by zaczê³o siê rozszerzaæ
+        // WierzchoÂ³ki dwudziestoÅ“cianu
+    // zmieniÃ¦ dt by zaczÃªÂ³o siÃª rozszerzaÃ¦
     float dt = 0.001;
     if (first) {
         node buf;
@@ -271,7 +271,7 @@ void renderScene()
             nodes.push_back(buf);
         }
 
-        // Dolny wierzcho³ek
+        // Dolny wierzchoÂ³ek
         buf.position = { 0.0f, -radius, 0.0f };
         nodes.push_back(buf);
         first = false;
@@ -306,7 +306,7 @@ void renderScene()
     glColor4f(0.0f, 0.0f, 1.0f, 0.1f);
     drawCuboid(Cube.width, Cube.height, Cube.depth);
 
-    //glDisable(GL_BLEND); // Wy³¹cz blending po zakoñczeniu rysowania
+    //glDisable(GL_BLEND); // WyÂ³Â¹cz blending po zakoÃ±czeniu rysowania
     //drawIcosahedron(0.5f);
     //glDisable(GL_DEPTH_TEST);
 }
@@ -315,32 +315,32 @@ void drawCuboid(float width, float height, float depth) {
     float halfHeight = height / 2.0f;
     float halfDepth = depth / 2.0f;
 
-    // Definiowanie wierzcho³ków prostopad³oœcianu
+    // Definiowanie wierzchoÂ³kÃ³w prostopadÂ³oÅ“cianu
     glm::vec3 vertices[] = {
-        // Przednia œciana
+        // Przednia Å“ciana
         { -halfWidth, -halfHeight,  halfDepth }, // 0
         {  halfWidth, -halfHeight,  halfDepth }, // 1
         {  halfWidth,  halfHeight,  halfDepth }, // 2
         { -halfWidth,  halfHeight,  halfDepth }, // 3
 
-        // Tylna œciana
+        // Tylna Å“ciana
         { -halfWidth, -halfHeight, -halfDepth }, // 4
         {  halfWidth, -halfHeight, -halfDepth }, // 5
         {  halfWidth,  halfHeight, -halfDepth }, // 6
         { -halfWidth,  halfHeight, -halfDepth }  // 7
     };
 
-    // Indeksy wierzcho³ków dla œcian (czworok¹tów)
+    // Indeksy wierzchoÂ³kÃ³w dla Å“cian (czworokÂ¹tÃ³w)
     int faces[6][4] = {
-        {0, 1, 2, 3}, // Przednia œciana
-        {4, 5, 6, 7}, // Tylna œciana
-        {0, 3, 7, 4}, // Lewa œciana
-        {1, 2, 6, 5}, // Prawa œciana
-        {0, 1, 5, 4}, // Dolna œciana
-        {2, 3, 7, 6}  // Górna œciana
+        {0, 1, 2, 3}, // Przednia Å“ciana
+        {4, 5, 6, 7}, // Tylna Å“ciana
+        {0, 3, 7, 4}, // Lewa Å“ciana
+        {1, 2, 6, 5}, // Prawa Å“ciana
+        {0, 1, 5, 4}, // Dolna Å“ciana
+        {2, 3, 7, 6}  // GÃ³rna Å“ciana
     };
 
-    // Rysowanie œcian (czworok¹tów)
+    // Rysowanie Å“cian (czworokÂ¹tÃ³w)
     glBegin(GL_QUADS);
     for (int i = 0; i < 6; ++i) {
         for (int j = 0; j < 4; ++j) {
@@ -349,13 +349,13 @@ void drawCuboid(float width, float height, float depth) {
     }
     glEnd();
 
-    // Rysowanie krawêdzi (linii)
+    // Rysowanie krawÃªdzi (linii)
     glColor3f(0.0f, 0.0f, 0.0f); // Ustaw kolor na czarny
     glBegin(GL_LINES);
     for (int i = 0; i < 6; ++i) {
         for (int j = 0; j < 4; ++j) {
             int current = faces[i][j];
-            int next = faces[i][(j + 1) % 4]; // Nastêpny wierzcho³ek w œcianie
+            int next = faces[i][(j + 1) % 4]; // NastÃªpny wierzchoÂ³ek w Å“cianie
             glVertex3f(vertices[current].x, vertices[current].y, vertices[current].z);
             glVertex3f(vertices[next].x, vertices[next].y, vertices[next].z);
         }
@@ -366,14 +366,14 @@ void drawOrangeSphereWithBlackEdges(float radius, int segments) {
     const float PI = 3.14159265358979323846f;
 
     for (int i = 0; i < segments; ++i) {
-        float theta1 = i * PI / segments;       // K¹t theta (pionowy)
+        float theta1 = i * PI / segments;       // KÂ¹t theta (pionowy)
         float theta2 = (i + 1) * PI / segments;
 
         for (int j = 0; j < segments; ++j) {
-            float phi1 = j * 2 * PI / segments; // K¹t phi (poziomy)
+            float phi1 = j * 2 * PI / segments; // KÂ¹t phi (poziomy)
             float phi2 = (j + 1) * 2 * PI / segments;
 
-            // Wierzcho³ki trójk¹ta 1
+            // WierzchoÂ³ki trÃ³jkÂ¹ta 1
             float x1 = radius * sin(theta1) * cos(phi1);
             float y1 = radius * sin(theta1) * sin(phi1);
             float z1 = radius * cos(theta1);
@@ -386,13 +386,13 @@ void drawOrangeSphereWithBlackEdges(float radius, int segments) {
             float y3 = radius * sin(theta2) * sin(phi1);
             float z3 = radius * cos(theta2);
 
-            // Wierzcho³ki trójk¹ta 2
+            // WierzchoÂ³ki trÃ³jkÂ¹ta 2
             float x4 = radius * sin(theta2) * cos(phi2);
             float y4 = radius * sin(theta2) * sin(phi2);
             float z4 = radius * cos(theta2);
 
-            // Rysowanie wype³nionych trójk¹tów (pomarañczowych)
-            glColor3f(1.0f, 0.5f, 0.0f); // Pomarañczowy kolor
+            // Rysowanie wypeÂ³nionych trÃ³jkÂ¹tÃ³w (pomaraÃ±czowych)
+            glColor3f(1.0f, 0.5f, 0.0f); // PomaraÃ±czowy kolor
             glBegin(GL_TRIANGLES);
             glVertex3f(x1, y1, z1);
             glVertex3f(x2, y2, z2);
@@ -403,7 +403,7 @@ void drawOrangeSphereWithBlackEdges(float radius, int segments) {
             glVertex3f(x3, y3, z3);
             glEnd();
 
-            // Rysowanie krawêdzi trójk¹tów (czarnych)
+            // Rysowanie krawÃªdzi trÃ³jkÂ¹tÃ³w (czarnych)
             glColor3f(0.0f, 0.0f, 0.0f); // Czarny kolor
             glBegin(GL_LINE_LOOP);
             glVertex3f(x1, y1, z1);
@@ -423,21 +423,21 @@ void drawIcosahedron(float radius, std::vector<node> nodes) {
     /*
     //float radius = 0.5f;
     const float H_ANGLE = M_PI / 180 * 72; // 72 stopni w radianach
-    const float V_ANGLE = atanf(1.0f / 2); // K¹t wierzcho³ka
+    const float V_ANGLE = atanf(1.0f / 2); // KÂ¹t wierzchoÂ³ka
 
     float vertices[12][3];
 
-    // Górny wierzcho³ek
+    // GÃ³rny wierzchoÂ³ek
     vertices[0][0] = 0;
     vertices[0][1] = radius;
     vertices[0][2] = 0;
 
-    // Dolny wierzcho³ek
+    // Dolny wierzchoÂ³ek
     vertices[11][0] = 0;
     vertices[11][1] = -radius;
     vertices[11][2] = 0;
 
-    // 10 wierzcho³ków na œrodku
+    // 10 wierzchoÂ³kÃ³w na Å“rodku
     for (int i = 1; i <= 5; ++i) {
         vertices[i][0] = radius * cos(V_ANGLE) * cos(i * H_ANGLE);
         vertices[i][1] = radius * sin(V_ANGLE);
@@ -448,7 +448,7 @@ void drawIcosahedron(float radius, std::vector<node> nodes) {
         vertices[i + 5][2] = radius * cos(V_ANGLE) * sin((i + 0.5f) * H_ANGLE);
     }
     */
-    // Indeksy trójk¹tów
+    // Indeksy trÃ³jkÂ¹tÃ³w
     int indices[20][3] = {
         {0, 1, 2}, {0, 2, 3}, {0, 3, 4}, {0, 4, 5}, {0, 5, 1},
         {11, 6, 7}, {11, 7, 8}, {11, 8, 9}, {11, 9, 10}, {11, 10, 6},
@@ -456,8 +456,8 @@ void drawIcosahedron(float radius, std::vector<node> nodes) {
         {6, 7, 2}, {7, 8, 3}, {8, 9, 4}, {9, 10, 5}, {10, 6, 1}
     };
     //std::cout << nodes[3].position.x << std::endl;
-    // Rysowanie œcian (pomarañczowe)
-    glColor4f(1.0f, 0.5f, 0.0f, 0.5f); // Pomarañczowy kolor
+    // Rysowanie Å“cian (pomaraÃ±czowe)
+    glColor4f(1.0f, 0.5f, 0.0f, 0.5f); // PomaraÃ±czowy kolor
     glBegin(GL_TRIANGLES);
     for (int i = 0; i < 20; ++i) {
         for (int j = 0; j < 3; ++j) {
@@ -466,13 +466,13 @@ void drawIcosahedron(float radius, std::vector<node> nodes) {
     }
     glEnd();
 
-    // Rysowanie krawêdzi (czarne)
+    // Rysowanie krawÃªdzi (czarne)
     glColor4f(0.0f, 0.0f, 0.0f, 0.5f); // Czarny kolor
     glBegin(GL_LINES);
     for (int i = 0; i < 20; ++i) {
         for (int j = 0; j < 3; ++j) {
             int current = indices[i][j];
-           int next = indices[i][(j + 1) % 3]; // Nastêpny wierzcho³ek w trójk¹cie
+           int next = indices[i][(j + 1) % 3]; // NastÃªpny wierzchoÂ³ek w trÃ³jkÂ¹cie
             //glVertex3f(vertices[current][0], vertices[current][1], vertices[current][2]);
             glVertex3f(nodes[current].position.x, nodes[current].position.y, nodes[current].position.z);
             //glVertex3f(vertices[next][0], vertices[next][1], vertices[next][2]);
