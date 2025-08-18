@@ -423,7 +423,7 @@ void drawOrangeSphereWithBlackEdges(float radius, int segments) {
         }
     }
 }
-
+//kom dla testu
 void drawIcosahedron(float radius, std::vector<node> nodes, std::vector<Triangle> triangles) {
     // Rysowanie scian (pomarañczowe)
     glColor4f(1.0f, 0.5f, 0.0f, 0.5f);
