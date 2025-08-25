@@ -295,7 +295,7 @@ void renderScene()
 
     static int frameCount = 0;
     if (frameCount % 10 == 0) {
-        refineIcosahedron(nodes, triangles, 0.2f);
+        refineIcosahedron(nodes, triangles, 0.05f);
     }
     frameCount++;
 
@@ -306,7 +306,7 @@ void renderScene()
     Cube.depth = 10.0f;
     updatePhysics(dt, Cube.width, Cube.height, Cube.depth);
 
-    drawIcosahedron(0.5f, nodes, triangles);
+    drawIcosahedron(0.2f, nodes, triangles);
 
     // Basen
     glColor4f(0.0f, 0.0f, 1.0f, 0.1f);
