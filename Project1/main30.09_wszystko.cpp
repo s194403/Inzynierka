@@ -18,9 +18,8 @@ void mouse_callback(GLFWwindow* window, double xpos, double ypos);
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
 void processInput(GLFWwindow* window);
 void renderScene();
-//void drawCuboid(float width, float height, float depth);
-void drawCuboidTransparentSorted();
-int printOversizedTriangles(float maxArea);
+void drawCuboid(float width, float height, float depth);
+void drawCuboidTransparentSorted(float width, float height, float depth);
 
 struct node {
     glm::vec3 position = glm::vec3(0, 0, 0); // Domyslnie ustawione na (0,0,0)
@@ -29,20 +28,18 @@ struct node {
 std::vector<node> nodes;
 
 struct Cuboid_dimensions {
-    float width = 8.0f;
-    float height = 6.0f;
-    float depth = 10.0f;
+    float width;
+    float height;
+    float depth;
 };
-Cuboid_dimensions Cube;
-
 
 struct Triangle {
     int indices[3];
 };
 std::vector<Triangle> triangles;
 
-void drawIcosahedron(float radius, std::vector<Triangle>);
-int pruneSlowNodes(float minSpeed);
+void drawIcosahedron(float radius, std::vector<node>, std::vector<Triangle>);
+int pruneSlowNodes(std::vector<node>& nodes, float minSpeed);
 
 
 // unikalny klucz krawêdzi (mniejszy indeks najpierw)
@@ -76,10 +73,10 @@ static int midpoint_index(int i0, int i1,
     return idx;
 }
 
-void updatePhysics(float dt) {
-    const float cuboidHalfWidth = Cube.width / 2.0f;
-    const float cuboidHalfHeight = Cube.height / 2.0f;
-    const float cuboidHalfDepth = Cube.depth / 2.0f;
+void updatePhysics(float dt, float cubeWidth, float cubeHeight, float cubeDepth) {
+    const float cuboidHalfWidth = cubeWidth / 2.0f;
+    const float cuboidHalfHeight = cubeHeight / 2.0f;
+    const float cuboidHalfDepth = cubeDepth / 2.0f;
     const float elasticity = 0.8f; // wspoolczynnik sprezystosci (0.8 = 80% energii zachowane)
 
     for (auto& node : nodes) {
@@ -87,17 +84,15 @@ void updatePhysics(float dt) {
         node.position = node.position + node.velocity * dt;
 
         // Sprawdzanie kolizji ze scianami prostopadloscianu i odbicia
-        
-
-        if (node.position.y <= -cuboidHalfHeight || node.position.y >= cuboidHalfHeight) {
-            node.velocity.y = -node.velocity.y * elasticity;
-            node.position.y = (node.position.y < 0) ? -cuboidHalfHeight + 0.001f : cuboidHalfHeight - 0.001f;
-        }
-
         if (node.position.x <= -cuboidHalfWidth || node.position.x >= cuboidHalfWidth) {
             node.velocity.x = -node.velocity.x * elasticity;
             // Korekta pozycji aby nie utknac w scianie
             node.position.x = (node.position.x < 0) ? -cuboidHalfWidth + 0.001f : cuboidHalfWidth - 0.001f;
+        }
+
+        if (node.position.y <= -cuboidHalfHeight || node.position.y >= cuboidHalfHeight) {
+            node.velocity.y = -node.velocity.y * elasticity;
+            node.position.y = (node.position.y < 0) ? -cuboidHalfHeight + 0.001f : cuboidHalfHeight - 0.001f;
         }
 
         if (node.position.z <= -cuboidHalfDepth || node.position.z >= cuboidHalfDepth) {
@@ -107,7 +102,7 @@ void updatePhysics(float dt) {
     }
 }
 
-float calculateTriangleArea(int a, int b, int c) {
+float calculateTriangleArea(const std::vector<node>& nodes, int a, int b, int c) {
     glm::vec3 ab = nodes[b].position - nodes[a].position;
     glm::vec3 ac = nodes[c].position - nodes[a].position;
     glm::vec3 cross = glm::cross(ab, ac);
@@ -115,7 +110,7 @@ float calculateTriangleArea(int a, int b, int c) {
     //return glm::dot(cross, cross); // pole bez pierwiastka czyli (2*area)^2
 }
 
-int addMidpoint(int a, int b) {
+int addMidpoint(std::vector<node>& nodes, int a, int b) {
     node midpoint;
     midpoint.position = (nodes[a].position + nodes[b].position) * 0.5f;
     midpoint.velocity = (nodes[a].velocity + nodes[b].velocity) * 0.5f;
@@ -140,27 +135,29 @@ static inline bool edge_eq(const Edge& x, const Edge& y) {
     return x.a == y.a && x.b == y.b;
 }
 
-static int midpoint_index_nodes_cached(int i0, int i1) {
+static int midpoint_index_nodes_cached(int i0, int i1, std::vector<node>& nodes) {
     uint64_t key = edge_key(i0, i1);           // masz ju¿ edge_key(i,j)
     auto it = gEdgeMidCache.find(key);
     if (it != gEdgeMidCache.end()) return it->second;
-    int idx = addMidpoint(i0, i1);      // Twój kod midpointu (pozycja/prêdkoœæ)
+    int idx = addMidpoint(nodes, i0, i1);      // Twój kod midpointu (pozycja/prêdkoœæ)
     gEdgeMidCache.emplace(key, idx);
     return idx;
 }
 
 // Zwraca indeks midpointu z cache; jeœli nie istnieje — tworzy przez addMidpoint(...)
 static int midpoint_index_nodes(int i0, int i1,
+    std::vector<node>& nodes,
     std::unordered_map<uint64_t, int>& cache)
 {
     uint64_t key = edge_key(i0, i1);     // edge_key ju¿ masz w pliku
     auto it = cache.find(key);
     if (it != cache.end()) return it->second;
 
-    int idx = addMidpoint(i0, i1); // œrednia pozycji i prêdkoœci — jak u Ciebie
+    int idx = addMidpoint(nodes, i0, i1); // œrednia pozycji i prêdkoœci — jak u Ciebie
     cache.emplace(key, idx);
     return idx;
 }
+
 
 void refineIcosahedron(std::vector<node>& nodes,
     float maxArea)
@@ -172,9 +169,9 @@ void refineIcosahedron(std::vector<node>& nodes,
     std::unordered_map<uint64_t, int> midCache;
     midCache.reserve(triangles.size() * 3);
 
-    const float cuboidHalfWidth = Cube.width * 0.5f;
-    const float cuboidHalfHeight = Cube.height * 0.5f;
-    const float cuboidHalfDepth = Cube.width * 0.5f;
+    const float cuboidHalfWidth = 8.0f * 0.5f;
+    const float cuboidHalfHeight = 6.0f * 0.5f;
+    const float cuboidHalfDepth = 10.0f * 0.5f;
     const float safetyMargin = 0.2f;
 
     // Porównujemy bez sqrt: |cross|^2 > (2*maxArea)^2
@@ -214,9 +211,9 @@ void refineIcosahedron(std::vector<node>& nodes,
 
         if (shouldSplit) {
             // 3) Midpointy z cache — brak duplikatów przy krawêdziach wspó³dzielonych
-            const int ab_i = midpoint_index_nodes(a, b, midCache);
-            const int bc_i = midpoint_index_nodes(b, c, midCache);
-            const int ca_i = midpoint_index_nodes(c, a, midCache);
+            const int ab_i = midpoint_index_nodes(a, b, nodes, midCache);
+            const int bc_i = midpoint_index_nodes(b, c, nodes, midCache);
+            const int ca_i = midpoint_index_nodes(c, a, nodes, midCache);
 
             newTriangles.push_back({ {a,  ab_i, ca_i} });
             newTriangles.push_back({ {b,  bc_i, ab_i} });
@@ -232,7 +229,8 @@ void refineIcosahedron(std::vector<node>& nodes,
 }
 
 // ==== NOWA WERSJA: rafinowanie bud¿etowe ====
-bool refineIcosahedron_chunked(float maxArea,
+bool refineIcosahedron_chunked(std::vector<node>& nodes,
+    float maxArea,
     size_t triBudget /* ile trójk¹tów obrabiamy na wywo³anie */)
 {
     if (triangles.empty() || triBudget == 0) return false;
@@ -244,9 +242,9 @@ bool refineIcosahedron_chunked(float maxArea,
     }
 
     // Sta³e i próg bez sqrt: |cross|^2 > (2*maxArea)^2
-    const float cuboidHalfWidth = Cube.width * 0.5f;
-    const float cuboidHalfHeight = Cube.height * 0.5f;
-    const float cuboidHalfDepth = Cube.depth * 0.5f;
+    const float cuboidHalfWidth = 8.0f * 0.5f;
+    const float cuboidHalfHeight = 6.0f * 0.5f;
+    const float cuboidHalfDepth = 10.0f * 0.5f;
     const float safetyMargin = 0.2f;
     const float area2_threshold = 4.0f * maxArea * maxArea;
 
@@ -259,8 +257,8 @@ bool refineIcosahedron_chunked(float maxArea,
 
     for (size_t i = start; i < end; ++i) {
         // UWAGA: nie trzymaj referencji do triangles[i] — bêdziemy push_back’owaæ.
-        //Triangle t = triangles[i];
-        int a = triangles[i].indices[0], b = triangles[i].indices[1], c = triangles[i].indices[2]; // tutaj zamiast triangles[i] bylo t.
+        Triangle t = triangles[i];
+        int a = t.indices[0], b = t.indices[1], c = t.indices[2];
 
         const glm::vec3& pa = nodes[a].position;
         const glm::vec3& pb = nodes[b].position;
@@ -287,9 +285,9 @@ bool refineIcosahedron_chunked(float maxArea,
 
             if (cr2 > area2_threshold) {
                 // Zast¹p trójk¹t i do³ó¿ 3 nowe — in-place, bez kopiowania ca³ej tablicy
-                const int ab_i = midpoint_index_nodes_cached(a, b);
-                const int bc_i = midpoint_index_nodes_cached(b, c);
-                const int ca_i = midpoint_index_nodes_cached(c, a);
+                const int ab_i = midpoint_index_nodes_cached(a, b, nodes);
+                const int bc_i = midpoint_index_nodes_cached(b, c, nodes);
+                const int ca_i = midpoint_index_nodes_cached(c, a, nodes);
 
                 triangles[i] = { { a,  ab_i, ca_i } };              // zamiana bie¿¹cego
                 triangles.push_back({ { b,  bc_i, ab_i } });        // 3 nowe
@@ -309,7 +307,8 @@ bool refineIcosahedron_chunked(float maxArea,
 }
 
 // ====== MULTI-THREAD CHUNKED REFINEMENT ======
-bool refineIcosahedron_chunked_mt(float maxArea,
+bool refineIcosahedron_chunked_mt(std::vector<node>& nodes,
+    float maxArea,
     size_t triBudget,          // ile trójk¹tów obrabiamy w tej klatce
     int   threadCount = std::thread::hardware_concurrency())
 {
@@ -326,9 +325,9 @@ bool refineIcosahedron_chunked_mt(float maxArea,
     const float area2_threshold = 4.0f * maxArea * maxArea;
 
     // sta³e kolizyjne (jak u Ciebie)
-    const float cuboidHalfWidth = Cube.width * 0.5f;
-    const float cuboidHalfHeight = Cube.height * 0.5f;
-    const float cuboidHalfDepth = Cube.depth * 0.5f;
+    const float cuboidHalfWidth = 8.0f * 0.5f;
+    const float cuboidHalfHeight = 6.0f * 0.5f;
+    const float cuboidHalfDepth = 10.0f * 0.5f;
     const float safetyMargin = 0.2f;
 
     // pracujemy wy³¹cznie na „starym” prefiksie tablicy trójk¹tów
@@ -421,7 +420,7 @@ bool refineIcosahedron_chunked_mt(float maxArea,
     std::vector<int> edgeMidIdx(edges.size());
     nodes.reserve(nodes.size() + edges.size());          // minimalizacja realokacji
     for (size_t i = 0; i < edges.size(); ++i) {
-        edgeMidIdx[i] = midpoint_index_nodes_cached(edges[i].a, edges[i].b);
+        edgeMidIdx[i] = midpoint_index_nodes_cached(edges[i].a, edges[i].b, nodes);
     }
     auto edge_lookup = [&](int u, int v)->int {
         if (u > v) std::swap(u, v);
@@ -490,6 +489,51 @@ bool refineIcosahedron_chunked_mt(float maxArea,
     return true;
 }
 
+//void refineIcosahedron(std::vector<node>& nodes, std::vector<Triangle>& triangles, float maxArea) {
+//    std::vector<Triangle> newTriangles;
+//
+//    const float cuboidHalfWidth = 8.0f / 2.0f;
+//    const float cuboidHalfHeight = 6.0f / 2.0f;
+//    const float cuboidHalfDepth = 10.f / 2.0f;
+//    const float safetyMargin = 0.2f; // margines bezpieczeñstwa od œcian
+//
+//    for (const auto& tri : triangles) {
+//        int a = tri.indices[0], b = tri.indices[1], c = tri.indices[2];
+//        float area = calculateTriangleArea(nodes, a, b, c);
+//        //std::cout << "Wierzcholki:" << a << " " << b << " " << c << " " << area << std::endl;
+//
+//        // Sprawdzamy czy którykolwiek wierzcho³ek jest zbyt blisko œciany
+//        bool nearWall = false;
+//        for (int i = 0; i < 3; ++i) {
+//            int nodeIndex = tri.indices[i];
+//            const auto& pos = nodes[nodeIndex].position;
+//
+//            if (fabs(pos.x) > cuboidHalfWidth - safetyMargin ||
+//                fabs(pos.y) > cuboidHalfHeight - safetyMargin ||
+//                fabs(pos.z) > cuboidHalfDepth - safetyMargin) {
+//                nearWall = true;
+//                break;
+//            }
+//        }
+//
+//        // Dzielimy tylko jeœli obszar jest za du¿y i ¿aden wierzcho³ek nie jest blisko œciany
+//        if (area > maxArea && !nearWall) {
+//            int ab = addMidpoint(nodes, a, b);
+//            int bc = addMidpoint(nodes, b, c);
+//            int ca = addMidpoint(nodes, c, a);
+//
+//            newTriangles.push_back({ {a, ab, ca} });
+//            newTriangles.push_back({ {b, bc, ab} });
+//            newTriangles.push_back({ {c, ca, bc} });
+//            newTriangles.push_back({ {ab, bc, ca} });
+//        }
+//        else {
+//            newTriangles.push_back(tri);
+//        }
+//    }
+//
+//    triangles = newTriangles;
+//}
 
 const unsigned int SCR_WIDTH = 800;
 const unsigned int SCR_HEIGHT = 600;
@@ -516,19 +560,6 @@ static GLsizei gIndexCount = 0;
 static bool gMeshDirty = true;           // trzeba odbudowaæ bufory (zmiana triangles/nodes count)
 static size_t gLastV = 0, gLastI = 0;    // do detekcji zmian topologii
 
-//proba
-// VBO/IBO/VAO
-static GLuint gVAO = 0;
-static GLuint gVboPos = 0;      // tylko pozycje (glm::vec3)
-static GLuint gIbo = 0;
-
-static GLsizeiptr gPosBytes = 0;
-static GLsizeiptr gIboBytes = 0;
-
-// persistent mapping (opcjonalnie)
-static bool       gPosPersistent = false;
-static glm::vec3* gPosPtr = nullptr; // wskazanie na zmapowany bufor pozycji
-
 // do FPS
 int frameCount = 0;
 double previousTime = 0.0;
@@ -544,7 +575,6 @@ void calculateFPS() {
 
         frameCount = 0;
         previousTime = currentTime;
-        printOversizedTriangles(0.05f);
     }
 }
 
@@ -584,7 +614,6 @@ int main()
         return -1;
     }
     glfwMakeContextCurrent(window);
-    //glfwSwapInterval(0);  // testowo — CPU nie bêdzie czeka³ na VBlank
 
     // to pod tym dodane do VBO 
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
@@ -688,53 +717,50 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height)
     glViewport(0, 0, width, height);
 }
 
-void buildSphereBuffers(bool dynamic = true) {
-    if (!GLAD_GL_VERSION_1_5) { std::cerr << "VBO niedostêpne (GL < 1.5)\n"; return; }
+void buildSphereBuffers(const std::vector<node>& nodes,
+    bool dynamic = true) // true jeœli pozycje bêd¹ siê ruszaæ
+{
+    if (!GLAD_GL_VERSION_1_5) {
+        std::cerr << "VBO niedostêpne (GL < 1.5)\n";
+        return;
+    }
 
-    // --- VBO (TERAZ: ca³y array 'nodes', bez przepakowywania do vec<vec3>) ---
+    std::vector<glm::vec3> positions;
+    positions.reserve(nodes.size());
+    for (const auto& n : nodes) positions.push_back(n.position);
+
+    std::vector<unsigned int> indices;
+    indices.reserve(triangles.size() * 3);
+    for (const auto& t : triangles) {
+        indices.push_back(t.indices[0]);
+        indices.push_back(t.indices[1]);
+        indices.push_back(t.indices[2]);
+    }
+    gIndexCount = (GLsizei)indices.size();
+
+    GLenum usage = dynamic ? GL_DYNAMIC_DRAW : GL_STATIC_DRAW;
+
     if (!gVBO) glGenBuffers(1, &gVBO);
     glBindBuffer(GL_ARRAY_BUFFER, gVBO);
+    glBufferData(GL_ARRAY_BUFFER, positions.size() * sizeof(glm::vec3), positions.data(), usage);
 
-    const GLsizeiptr vbSize = (GLsizeiptr)(nodes.size() * sizeof(node));
-    const GLenum usage = dynamic ? GL_DYNAMIC_DRAW : GL_STATIC_DRAW;
-
-    glBufferData(GL_ARRAY_BUFFER, vbSize, nodes.empty() ? nullptr : (const void*)nodes.data(), usage);
-
-    // Atrybut pozycji: 3 floaty, stride = sizeof(node), offset = offsetof(node, position)
-    glEnableClientState(GL_VERTEX_ARRAY); // compatibility profile
-    glVertexPointer(3, GL_FLOAT, (GLsizei)sizeof(node), (const void*)offsetof(node, position));
-
-    // --- IBO (bez tworzenia wektora 'indices') ---
     if (!gIBO) glGenBuffers(1, &gIBO);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, gIBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned int), indices.data(), GL_STATIC_DRAW);
 
-    const GLsizeiptr ibSize = (GLsizeiptr)(triangles.size() * 3 * sizeof(unsigned int));
-    const void* idxSrc = triangles.empty() ? nullptr : (const void*)&triangles[0].indices[0];
-
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, ibSize, idxSrc, GL_STATIC_DRAW);
-
-    gIndexCount = (GLsizei)(triangles.size() * 3);
-
-    // porz¹dek
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
-    glDisableClientState(GL_VERTEX_ARRAY);
 }
 
-
-void updateSpherePositions() {
+void updateSpherePositions(const std::vector<node>& nodes)
+{
     if (!gVBO) return;
+    std::vector<glm::vec3> positions(nodes.size());
+    for (size_t i = 0; i < nodes.size(); ++i) positions[i] = nodes[i].position;
 
-    // Uwaga: wysy³amy CA£¥ strukturê node (nie tylko pozycjê)
-    // — ale to eliminuje pêtlê kopiuj¹c¹ pozycje po CPU.
     glBindBuffer(GL_ARRAY_BUFFER, gVBO);
-    const GLsizeiptr vbSize = (GLsizeiptr)(nodes.size() * sizeof(node));
-
-    // orphan + jednorazowy transfer
-    glBufferData(GL_ARRAY_BUFFER, vbSize, nullptr, GL_DYNAMIC_DRAW);
-    if (!nodes.empty())
-        glBufferSubData(GL_ARRAY_BUFFER, 0, vbSize, (const void*)nodes.data());
-
+    // szybka podmiana danych w miejscu
+    glBufferSubData(GL_ARRAY_BUFFER, 0, positions.size() * sizeof(glm::vec3), positions.data());
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 }
 
@@ -742,30 +768,28 @@ void drawSphereWithBuffers()
 {
     if (!gVBO || !gIBO || gIndexCount == 0) return;
 
+    //te rzeczy chyba nie potrzebne przeszkodzily w rysowaniu basenu
+    //glEnable(GL_DEPTH_TEST);
+    //glEnable(GL_CULL_FACE);
+    //glCullFace(GL_BACK);
+
     glBindBuffer(GL_ARRAY_BUFFER, gVBO);
-    glEnableClientState(GL_VERTEX_ARRAY);                           // compat profile
-    glVertexPointer(3, GL_FLOAT, (GLsizei)sizeof(node),
-        (const void*)offsetof(node, position));
+    glEnableClientState(GL_VERTEX_ARRAY);                         // compatibility profile
+    glVertexPointer(3, GL_FLOAT, sizeof(glm::vec3), (void*)0);
 
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, gIBO);
 
-    // 1) Wype³nienie – z polygon offset, ¿eby obrys nie „miga³”
-    glEnable(GL_POLYGON_OFFSET_FILL);
-    glPolygonOffset(1.0f, 1.0f);          // odsuñ fill w g³¹b z-bufferu
-
-    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+    // wype³nienie
     glColor4f(1.0f, 0.5f, 0.0f, 1.0f);
+    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     glDrawElements(GL_TRIANGLES, gIndexCount, GL_UNSIGNED_INT, (void*)0);
 
-    glDisable(GL_POLYGON_OFFSET_FILL);
-
-    // 2) Obrys (wireframe)
-    glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-    glLineWidth(1.0f);                    // mo¿esz podbiæ np. do 2.0
+    // opcjonalny obrys
     glColor4f(0.0f, 0.0f, 0.0f, 0.6f);
+    glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
     glDrawElements(GL_TRIANGLES, gIndexCount, GL_UNSIGNED_INT, (void*)0);
 
-    // 3) Sprz¹tanie
+    // posprz¹tanie
     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     glDisableClientState(GL_VERTEX_ARRAY);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -841,7 +865,7 @@ void renderScene()
         for (const auto& p : verts) {
             node nd;
             nd.position = p;
-            nd.velocity = nd.position * 1.0f; // tak jak mia³eœ
+            nd.velocity = nd.position * 10.0f; // tak jak mia³eœ
             nodes.push_back(nd);
         }
 
@@ -852,7 +876,7 @@ void renderScene()
         }
 
         first = false;
-        buildSphereBuffers(/*dynamic=*/true);
+        buildSphereBuffers(nodes, /*dynamic=*/true);
     }
 
     //buildSphereBuffers(nodes, triangles, /*dynamic=*/true); //bledne bo caly czas sie wykonywalo
@@ -878,40 +902,34 @@ void renderScene()
     //frameCount++;
 
     static int frameCount = 0;
-    if ((frameCount % 2) == 0) {
+    if ((frameCount % 4) == 0) {
         size_t budget = std::min<size_t>(4000, std::max<size_t>(1, triangles.size() / 10));
-        budget = triangles.size() / 12;
         int threads = std::max(1u, std::thread::hardware_concurrency());
-
-        if (refineIcosahedron_chunked_mt(0.05f, budget,threads)) {
+        if (refineIcosahedron_chunked_mt(nodes, 0.05f, budget,threads)) {
             gMeshDirty = true; // przebuduj bufory tylko gdy zasz³a zmiana
         }
-
-        /*refineIcosahedron(nodes, 0.05f);
-        gMeshDirty = true;
-        */
     }
     frameCount++;
 
     //updatePhysics(dt);
-    /*Cuboid_dimensions Cube;
-    Cube.width = 80.0f;
-    Cube.height = 60.0f;
-    Cube.depth = 100.0f;*/
-    updatePhysics(dt);
+    Cuboid_dimensions Cube;
+    Cube.width = 8.0f;
+    Cube.height = 6.0f;
+    Cube.depth = 10.0f;
+    updatePhysics(dt, Cube.width, Cube.height, Cube.depth);
     //int removed = pruneSlowNodes(nodes, /*minSpeed=*/2.00f); // m/s (dobierz)
 
     // ... update fizyki, modyfikujesz nodes[i].position ...
     // 1) odbuduj bufory tylko gdy trzeba
     if (gMeshDirty || nodes.size() != gLastV || triangles.size() != gLastI) {
-        buildSphereBuffers(/*dynamic=*/true);
+        buildSphereBuffers(nodes, /*dynamic=*/true);
         gLastV = nodes.size();
         gLastI = triangles.size();
         gMeshDirty = false;
     }
     else {
         // 2) w przeciwnym razie tylko podmieñ pozycje
-        updateSpherePositions();
+        updateSpherePositions(nodes);
     }
 
     // 3) rysuj TYLKO z VBO/IBO
@@ -929,55 +947,12 @@ void renderScene()
     // Basen
     glColor4f(0.0f, 0.0f, 1.0f, 0.5f);
     //drawCuboid(Cube.width, Cube.height, Cube.depth);
-    drawCuboidTransparentSorted();
-}
-
-int printOversizedTriangles(float maxArea) {
-    // te same sta³e co w refine
-    const float cuboidHalfWidth = Cube.width * 0.5f;
-    const float cuboidHalfHeight = Cube.height * 0.5f;
-    const float cuboidHalfDepth = Cube.depth * 0.5f;
-    const float safetyMargin = 0.2f;
-
-    // porównujemy |cross|^2 > (2*maxArea)^2
-    const float thr2 = 4.0f * maxArea * maxArea;
-
-    int count = 0;
-    for (const auto& t : triangles) {
-        int a = t.indices[0], b = t.indices[1], c = t.indices[2];
-        const glm::vec3& pa = nodes[a].position;
-        const glm::vec3& pb = nodes[b].position;
-        const glm::vec3& pc = nodes[c].position;
-
-        // pomijamy trójk¹ty blisko œciany (jak w refine)
-        const bool nearWall =
-            (std::fabs(pa.x) > cuboidHalfWidth - safetyMargin) ||
-            (std::fabs(pa.y) > cuboidHalfHeight - safetyMargin) ||
-            (std::fabs(pa.z) > cuboidHalfDepth - safetyMargin) ||
-            (std::fabs(pb.x) > cuboidHalfWidth - safetyMargin) ||
-            (std::fabs(pb.y) > cuboidHalfHeight - safetyMargin) ||
-            (std::fabs(pb.z) > cuboidHalfDepth - safetyMargin) ||
-            (std::fabs(pc.x) > cuboidHalfWidth - safetyMargin) ||
-            (std::fabs(pc.y) > cuboidHalfHeight - safetyMargin) ||
-            (std::fabs(pc.z) > cuboidHalfDepth - safetyMargin);
-
-        if (nearWall) continue;
-
-        // pole bez sqrt: |(pb-pa) x (pc-pa)|^2
-        const glm::vec3 cr = glm::cross(pb - pa, pc - pa);
-        const float cr2 = glm::dot(cr, cr);
-
-        if (cr2 > thr2) ++count;
-    }
-    float procent = (float)count / (float)triangles.size() * 100.0f;
-    std::cout << "Oversized (splittable) triangles: "
-        << triangles.size() << "\n";
-    return count;
+    drawCuboidTransparentSorted(Cube.width, Cube.height, Cube.depth);
 }
 
 // Usuwa wêz³y o |velocity| < minSpeed i remapuje trójk¹ty.
 // Zwraca ile wêz³ów usuniêto.
-int pruneSlowNodes(float minSpeed) {
+int pruneSlowNodes(std::vector<node>& nodes, float minSpeed) {
     const float thr2 = minSpeed * minSpeed;
     const size_t N = nodes.size();
 
@@ -1024,10 +999,10 @@ int pruneSlowNodes(float minSpeed) {
     return (int)(N - nodes.size());
 }
 
-void drawCuboidTransparentSorted() {
-    float halfWidth = Cube.width / 2.0f;
-    float halfHeight = Cube.height / 2.0f;
-    float halfDepth = Cube.depth / 2.0f;
+void drawCuboidTransparentSorted(float width, float height, float depth) {
+    float halfWidth = width / 2.0f;
+    float halfHeight = height / 2.0f;
+    float halfDepth = depth / 2.0f;
 
     glm::vec3 vertices[] = {
         { -halfWidth, -halfHeight,  halfDepth },
@@ -1085,8 +1060,60 @@ void drawCuboidTransparentSorted() {
     glEnd();
 }
 
+void drawCuboid(float width, float height, float depth) {
+    float halfWidth = width / 2.0f;
+    float halfHeight = height / 2.0f;
+    float halfDepth = depth / 2.0f;
 
-void drawIcosahedron(float radius, std::vector<Triangle> triangles) {
+    // Definiowanie wierzcholkow prostopadloscianu
+    glm::vec3 vertices[] = {
+        // Przednia sciana
+        { -halfWidth, -halfHeight,  halfDepth },
+        {  halfWidth, -halfHeight,  halfDepth },
+        {  halfWidth,  halfHeight,  halfDepth },
+        { -halfWidth,  halfHeight,  halfDepth },
+
+        // Tylna sciana
+        { -halfWidth, -halfHeight, -halfDepth },
+        {  halfWidth, -halfHeight, -halfDepth },
+        {  halfWidth,  halfHeight, -halfDepth },
+        { -halfWidth,  halfHeight, -halfDepth }
+    };
+
+    // Indeksy wierzcholkow dla scian (czworokatow)
+    int faces[6][4] = {
+        {0, 1, 2, 3}, // Przednia sciana
+        {4, 5, 6, 7}, // Tylna sciana
+        {0, 3, 7, 4}, // Lewa sciana
+        {1, 2, 6, 5}, // Prawa sciana
+        {0, 1, 5, 4}, // Dolna sciana
+        {2, 3, 7, 6}  // Gorna sciana
+    };
+
+    // Rysowanie scian (czworokatow)
+    glBegin(GL_QUADS);
+    for (int i = 0; i < 6; ++i) {
+        for (int j = 0; j < 4; ++j) {
+            glVertex3f(vertices[faces[i][j]].x, vertices[faces[i][j]].y, vertices[faces[i][j]].z);
+        }
+    }
+    glEnd();
+
+    // Rysowanie krawedzi (linii)
+    glColor3f(0.0f, 0.0f, 0.0f);
+    glBegin(GL_LINES);
+    for (int i = 0; i < 6; ++i) {
+        for (int j = 0; j < 4; ++j) {
+            int current = faces[i][j];
+            int next = faces[i][(j + 1) % 4];
+            glVertex3f(vertices[current].x, vertices[current].y, vertices[current].z);
+            glVertex3f(vertices[next].x, vertices[next].y, vertices[next].z);
+        }
+    }
+    glEnd();
+}
+
+void drawIcosahedron(float radius, std::vector<node> nodes, std::vector<Triangle> triangles) {
     // Rysowanie scian (pomarañczowe)
     glColor4f(1.0f, 0.5f, 0.0f, 0.5f); //te 0.5f na koncu nie ma znaczenia jak blend wylaczony
     glBegin(GL_TRIANGLES);
