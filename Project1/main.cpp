@@ -27,6 +27,7 @@ struct node {
     glm::vec3 velocity = glm::vec3(0, 0, 0);
 };
 std::vector<node> nodes;
+std::vector<node> mic_nodes;
 
 struct Cuboid_dimensions {
     float width = 8.0f;
@@ -40,8 +41,10 @@ struct Triangle {
     int indices[3];
 };
 std::vector<Triangle> triangles;
+std::vector<Triangle> microphone;
 
 void drawIcosahedron(float radius, std::vector<Triangle>);
+void drawMicrophone(float mic_radius, std::vector<Triangle>);
 int pruneSlowNodes(float minSpeed);
 
 
@@ -549,6 +552,7 @@ void calculateFPS() {
 }
 
 float radius = 0.5f;
+float mic_radius = 0.05f;
 const float H_ANGLE = M_PI / 180 * 72; // 72 stopni w radianach
 const float V_ANGLE = atanf(1.0f / 2); // Kat wierzcholka
 
@@ -783,6 +787,36 @@ void renderScene()
         nodes.clear();
         triangles.clear();
 
+        float mic_x = 2.5f;
+        float mic_y = 2.0f;
+        float mic_z = 3.0f;
+        node buf;
+        buf.position = glm::vec3(mic_x, mic_y + mic_radius, mic_z);
+        mic_nodes.push_back(buf);
+
+        for (int i = 1; i <= 5; ++i) {
+            buf.position = glm::vec3(mic_x + mic_radius * cos(V_ANGLE) * cos(i * H_ANGLE), mic_y + mic_radius * sin(V_ANGLE), mic_z + mic_radius * cos(V_ANGLE) * sin(i * H_ANGLE));
+            mic_nodes.push_back(buf);
+        }
+        for (int i = 6; i <= 10; ++i) {
+            buf.position = glm::vec3(mic_x + mic_radius * cos(V_ANGLE) * cos((i + 0.5f) * H_ANGLE), mic_y + -mic_radius * sin(V_ANGLE), mic_z + mic_radius * cos(V_ANGLE) * sin((i + 0.5f) * H_ANGLE));
+            mic_nodes.push_back(buf);
+        }
+
+        buf.position = glm::vec3(mic_x, mic_y - mic_radius, mic_z);
+        mic_nodes.push_back(buf);
+
+        const int initTris[20][3] = {
+            {0,1,2}, {0,2,3}, {0,3,4}, {0,4,5}, {0,5,1},
+            {11,6,7}, {11,7,8}, {11,8,9}, {11,9,10}, {11,10,6},
+            {1,2,6}, {2,3,7}, {3,4,8}, {4,5,9}, {5,1,10},
+            {6,7,2}, {7,8,3}, {8,9,4}, {9,10,5}, {10,6,1}
+        };
+
+        for (int i = 0; i < 20; ++i) {
+            microphone.push_back({ {initTris[i][0], initTris[i][1], initTris[i][2]} });
+        }
+
         // --- Parametr gêstoœci: ka¿dy poziom ×4 liczba trójk¹tów ---
         constexpr int SUBDIV = 2; // zacznij od 1–2; 3 to ju¿ bardzo gêsto
 
@@ -854,6 +888,8 @@ void renderScene()
         first = false;
         buildSphereBuffers(/*dynamic=*/true);
     }
+
+    drawMicrophone(mic_radius, microphone);
 
     //buildSphereBuffers(nodes, triangles, /*dynamic=*/true); //bledne bo caly czas sie wykonywalo
 
@@ -1108,6 +1144,34 @@ void drawIcosahedron(float radius, std::vector<Triangle> triangles) {
             int next = tri.indices[(j + 1) % 3];
             glVertex3f(nodes[current].position.x, nodes[current].position.y, nodes[current].position.z);
             glVertex3f(nodes[next].position.x, nodes[next].position.y, nodes[next].position.z);
+        }
+    }
+    glEnd();
+}
+
+void drawMicrophone(float mic_radius, std::vector<Triangle>)
+{
+    // Rysowanie scian 
+    glColor4f(6.0f, 0.4f, 0.8f, 0.75f);
+    glBegin(GL_TRIANGLES);
+    for (const auto& mic : microphone) {
+        for (int j = 0; j < 3; ++j) {
+            glVertex3f(mic_nodes[mic.indices[j]].position.x,
+                mic_nodes[mic.indices[j]].position.y,
+                mic_nodes[mic.indices[j]].position.z);
+        }
+    }
+    glEnd();
+
+    // Rysowanie krawedzi (czarne)
+    glColor4f(0.0f, 0.0f, 0.0f, 0.5f);
+    glBegin(GL_LINES);
+    for (const auto& mic : microphone) {
+        for (int j = 0; j < 3; ++j) {
+            int current = mic.indices[j];
+            int next = mic.indices[(j + 1) % 3];
+            glVertex3f(mic_nodes[current].position.x, mic_nodes[current].position.y, mic_nodes[current].position.z);
+            glVertex3f(mic_nodes[next].position.x, mic_nodes[next].position.y, mic_nodes[next].position.z);
         }
     }
     glEnd();
