@@ -45,6 +45,7 @@ std::vector<Triangle> microphone;
 
 void drawIcosahedron(float radius, std::vector<Triangle>);
 void drawMicrophone(float mic_radius, std::vector<Triangle>);
+void checkMicrophone(float mic_radius, std::vector<node> wave, std::vector<node> mic);
 int pruneSlowNodes(float minSpeed);
 
 
@@ -889,7 +890,9 @@ void renderScene()
         buildSphereBuffers(/*dynamic=*/true);
     }
 
+    //MIKROFON TUTAJ
     drawMicrophone(mic_radius, microphone);
+    checkMicrophone(mic_radius, nodes, mic_nodes);
 
     //buildSphereBuffers(nodes, triangles, /*dynamic=*/true); //bledne bo caly czas sie wykonywalo
 
@@ -1175,4 +1178,18 @@ void drawMicrophone(float mic_radius, std::vector<Triangle>)
         }
     }
     glEnd();
+}
+
+void checkMicrophone(float mic_radius, std::vector<node> wave, std::vector<node> mic)
+{
+    for(const auto& wav : wave)
+    {
+        for (const auto& m : mic)
+        {
+            if (abs(wav.position.x - m.position.x) < mic_radius && abs(wav.position.y - m.position.y) < mic_radius && abs(wav.position.z - m.position.z) < mic_radius)
+            {
+                std::cout << "ODCZYT MIKROFONU" << std::endl;
+            }
+        }
+    }
 }
