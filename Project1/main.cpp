@@ -25,7 +25,9 @@ int printOversizedTriangles(float maxArea);
 struct node {
     glm::vec3 position = glm::vec3(0, 0, 0); // Domyslnie ustawione na (0,0,0)
     glm::vec3 velocity = glm::vec3(0, 0, 0);
+    float energy = 0;
 };
+
 std::vector<node> nodes;
 std::vector<node> mic_nodes;
 
@@ -35,6 +37,14 @@ struct Cuboid_dimensions {
     float depth = 10.0f;
 };
 Cuboid_dimensions Cube;
+
+//MIKROFON
+struct Microphone_pos{
+    float mic_x = 2.5f;
+    float mic_y = 2.0f;
+    float mic_z = 3.0f;
+};
+Microphone_pos Mic_pos;
 
 
 struct Triangle {
@@ -89,26 +99,31 @@ void updatePhysics(float dt) {
     for (auto& node : nodes) {
         // Aktualizacja pozycji
         node.position = node.position + node.velocity * dt;
+        node.energy = node.energy * 0.999;
 
         // Sprawdzanie kolizji ze scianami prostopadloscianu i odbicia
         
 
-        if (node.position.y <= -cuboidHalfHeight || node.position.y >= cuboidHalfHeight) {
+        if (node.position.y <= -cuboidHalfHeight || node.position.y >= cuboidHalfHeight)
+        {
             node.velocity.y = -node.velocity.y * elasticity;
             node.position.y = (node.position.y < 0) ? -cuboidHalfHeight + 0.001f : cuboidHalfHeight - 0.001f;
         }
 
-        if (node.position.x <= -cuboidHalfWidth || node.position.x >= cuboidHalfWidth) {
+        if (node.position.x <= -cuboidHalfWidth || node.position.x >= cuboidHalfWidth)
+        {
             node.velocity.x = -node.velocity.x * elasticity;
             // Korekta pozycji aby nie utknac w scianie
             node.position.x = (node.position.x < 0) ? -cuboidHalfWidth + 0.001f : cuboidHalfWidth - 0.001f;
         }
 
-        if (node.position.z <= -cuboidHalfDepth || node.position.z >= cuboidHalfDepth) {
+        if (node.position.z <= -cuboidHalfDepth || node.position.z >= cuboidHalfDepth)
+        {
             node.velocity.z = -node.velocity.z * elasticity;
             node.position.z = (node.position.z < 0) ? -cuboidHalfDepth + 0.001f : cuboidHalfDepth - 0.001f;
         }
     }
+
 }
 
 float calculateTriangleArea(int a, int b, int c) {
@@ -589,7 +604,6 @@ int main()
         return -1;
     }
     glfwMakeContextCurrent(window);
-    //glfwSwapInterval(0);  // testowo — CPU nie bêdzie czeka³ na VBlank
 
     // to pod tym dodane do VBO 
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
@@ -788,23 +802,23 @@ void renderScene()
         nodes.clear();
         triangles.clear();
 
-        float mic_x = 2.5f;
-        float mic_y = 2.0f;
-        float mic_z = 3.0f;
+        //gorny wierzcholek
         node buf;
-        buf.position = glm::vec3(mic_x, mic_y + mic_radius, mic_z);
+        buf.position = glm::vec3(Mic_pos.mic_x, Mic_pos.mic_y + mic_radius, Mic_pos.mic_z);
         mic_nodes.push_back(buf);
 
+        //boczne wierzcholki
         for (int i = 1; i <= 5; ++i) {
-            buf.position = glm::vec3(mic_x + mic_radius * cos(V_ANGLE) * cos(i * H_ANGLE), mic_y + mic_radius * sin(V_ANGLE), mic_z + mic_radius * cos(V_ANGLE) * sin(i * H_ANGLE));
+            buf.position = glm::vec3(Mic_pos.mic_x + mic_radius * cos(V_ANGLE) * cos(i * H_ANGLE), Mic_pos.mic_y + mic_radius * sin(V_ANGLE), Mic_pos.mic_z + mic_radius * cos(V_ANGLE) * sin(i * H_ANGLE));
             mic_nodes.push_back(buf);
         }
         for (int i = 6; i <= 10; ++i) {
-            buf.position = glm::vec3(mic_x + mic_radius * cos(V_ANGLE) * cos((i + 0.5f) * H_ANGLE), mic_y + -mic_radius * sin(V_ANGLE), mic_z + mic_radius * cos(V_ANGLE) * sin((i + 0.5f) * H_ANGLE));
+            buf.position = glm::vec3(Mic_pos.mic_x + mic_radius * cos(V_ANGLE) * cos((i + 0.5f) * H_ANGLE), Mic_pos.mic_y + -mic_radius * sin(V_ANGLE), Mic_pos.mic_z + mic_radius * cos(V_ANGLE) * sin((i + 0.5f) * H_ANGLE));
             mic_nodes.push_back(buf);
         }
 
-        buf.position = glm::vec3(mic_x, mic_y - mic_radius, mic_z);
+        //dolny wierzcholek
+        buf.position = glm::vec3(Mic_pos.mic_x, Mic_pos.mic_y - mic_radius, Mic_pos.mic_z);
         mic_nodes.push_back(buf);
 
         const int initTris[20][3] = {
@@ -819,9 +833,9 @@ void renderScene()
         }
 
         // --- Parametr gêstoœci: ka¿dy poziom ×4 liczba trójk¹tów ---
-        constexpr int SUBDIV = 2; // zacznij od 1–2; 3 to ju¿ bardzo gêsto
+        constexpr int SUBDIV = 2; // 2 optymalnie, wiecej laguje
 
-        // --- 12 wierzcho³ków icosahedronu na sferze o promieniu 'radius' ---
+        // --- 12 wierzcho³ków  na sferze o promieniu 'radius' ---
         const float t = (1.0f + std::sqrt(5.0f)) * 0.5f; // z³ota proporcja
         std::vector<glm::vec3> verts = {
             glm::normalize(glm::vec3(-1,  t,  0)),
@@ -841,7 +855,7 @@ void renderScene()
         };
         for (auto& v : verts) v *= radius; // na promieñ 'radius'
 
-        // --- 20 œcian icosahedronu (CCW patrz¹c z zewn¹trz) ---
+        // --- 20 œcian (CCW patrz¹c z zewn¹trz) ---
         std::vector<glm::ivec3> faces = {
             {0,11,5}, {0,5,1}, {0,1,7}, {0,7,10}, {0,10,11},
             {1,5,9},  {5,11,4}, {11,10,2}, {10,7,6}, {7,1,8},
@@ -871,12 +885,11 @@ void renderScene()
             faces.swap(new_faces);
         }
 
-        // --- Przepisz do Twoich struktur nodes / triangles ---
         nodes.reserve(verts.size());
         for (const auto& p : verts) {
             node nd;
             nd.position = p;
-            nd.velocity = nd.position * 1.0f; // tak jak mia³eœ
+            nd.velocity = nd.position * 1.0f; 
             nodes.push_back(nd);
         }
 
@@ -940,7 +953,6 @@ void renderScene()
     updatePhysics(dt);
     //int removed = pruneSlowNodes(nodes, /*minSpeed=*/2.00f); // m/s (dobierz)
 
-    // ... update fizyki, modyfikujesz nodes[i].position ...
     // 1) odbuduj bufory tylko gdy trzeba
     if (gMeshDirty || nodes.size() != gLastV || triangles.size() != gLastI) {
         buildSphereBuffers(/*dynamic=*/true);
