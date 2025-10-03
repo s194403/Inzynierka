@@ -32,17 +32,17 @@ std::vector<node> nodes;
 std::vector<node> mic_nodes;
 
 struct Cuboid_dimensions {
-    float width = 8.0f;
-    float height = 6.0f;
-    float depth = 10.0f;
+    float width = 20.0f;
+    float height = 12.0f;
+    float depth = 20.0f;
 };
 Cuboid_dimensions Cube;
 
 //MIKROFON
 struct Microphone_pos{
-    float mic_x = 2.5f;
-    float mic_y = 2.0f;
-    float mic_z = 3.0f;
+    float mic_x;
+    float mic_y;
+    float mic_z;
 };
 Microphone_pos Mic_pos;
 
@@ -95,6 +95,7 @@ void updatePhysics(float dt) {
     const float cuboidHalfHeight = Cube.height / 2.0f;
     const float cuboidHalfDepth = Cube.depth / 2.0f;
     const float elasticity = 0.8f; // wspoolczynnik sprezystosci (0.8 = 80% energii zachowane)
+    
 
     for (auto& node : nodes) {
         // Aktualizacja pozycji
@@ -567,8 +568,8 @@ void calculateFPS() {
     }
 }
 
-float radius = 0.5f;
-float mic_radius = 0.05f;
+float radius = 0.2f;
+float mic_radius = 0.1f;
 const float H_ANGLE = M_PI / 180 * 72; // 72 stopni w radianach
 const float V_ANGLE = atanf(1.0f / 2); // Kat wierzcholka
 
@@ -617,6 +618,11 @@ int main()
     glfwSetScrollCallback(window, scroll_callback);
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
 
+    //--POCZATKOWA POZYCJA MIKROFONU---
+    Mic_pos.mic_x = 3.5f;
+    Mic_pos.mic_y = 2.0f;
+    Mic_pos.mic_z = 1.0f;
+
     while (!glfwWindowShouldClose(window))
     {
         float currentFrame = glfwGetTime();
@@ -638,6 +644,9 @@ int main()
         glLoadMatrixf(&view[0][0]);
 
         renderScene();
+        //ZMIEN POZYCJE MIKROFONU
+        Mic_pos.mic_x = Mic_pos.mic_x - 0.1f;
+
         // Oblicz FPS
         calculateFPS();
 
