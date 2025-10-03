@@ -61,7 +61,7 @@ void drawMicrophone();
 void checkMicrophone();
 int pruneSlowNodes(float minSpeed);
 
-
+static inline bool touchesMicrophone(const glm::vec3& p);
 // unikalny klucz krawêdzi (mniejszy indeks najpierw)
 static inline uint64_t edge_key(int a, int b) {
     if (a > b) std::swap(a, b);
@@ -137,7 +137,7 @@ void updatePhysics(float dt)
 
         nodes[i].energy *= e;
 
-        // Integracja (semi-implicit Euler by³by stabilniejszy, ale zostawiamy Twój schemat)
+        // Integracja 
         p += v * dt;
 
         // Odbicia w XYZ
@@ -977,6 +977,15 @@ void renderScene()
     Cube.height = 60.0f;
     Cube.depth = 100.0f;*/
     updatePhysics(dt);
+    //--NAJPIERW SPRAWDZA CZY MIKROFON DOTYKA I JEST ODCZYT---
+    for (size_t i = 0; i < nodes.size(); ++i)
+    {
+        if (touchesMicrophone(nodes[i].position))
+        {
+            std::cout << "ODCZYT" << std::endl;
+        }
+    }
+    //-----USUWANIE DOTKNIETYCH NODES-----
     pruneSlowNodes(/*minSpeed=*/0.0f); // m/s (dobierz)
     //removeSlowNodes(/*minSpeed=*/4.00f);
 
@@ -1003,7 +1012,8 @@ void renderScene()
     drawSphereWithBuffers();
     //drawIcosahedron(radius, triangles);
     drawMicrophone();
-    checkMicrophone();
+    //checkMicrophone();
+    
     glEnable(GL_DEPTH_TEST);
     // Basen
     glColor4f(0.0f, 0.0f, 1.0f, 0.1f);
