@@ -11,7 +11,7 @@
 #include <unordered_map>
 #define M_PI 3.1415
 
-#include <cstdlib> // wymagane dla exit()
+//#include <cstdlib> // wymagane dla exit()
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void mouse_callback(GLFWwindow* window, double xpos, double ypos);
@@ -21,6 +21,7 @@ void renderScene();
 //void drawCuboid(float width, float height, float depth);
 void drawCuboidTransparentSorted();
 int printOversizedTriangles(float maxArea);
+//int removeSlowNodes(float minSpeed);
 
 struct node {
     glm::vec3 position = glm::vec3(0, 0, 0); // Domyslnie ustawione na (0,0,0)
@@ -32,20 +33,19 @@ std::vector<node> nodes;
 std::vector<node> mic_nodes;
 
 struct Cuboid_dimensions {
-    float width = 5.0f;
-    float height = 5.0f;
-    float depth = 5.0f;
-    float x_offset = 2.0f;
-    float y_offset = 0.0f;
-    float z_offset = 0.0f;
+    float width = 8.0f;
+    float height = 6.0f;
+    float depth = 10.0f;
 };
 Cuboid_dimensions Cube;
 
 //MIKROFON
-struct Microphone_pos{
-    float mic_x;
-    float mic_y;
-    float mic_z;
+struct Microphone_pos {
+    float mic_x = 1.0f;
+    float mic_y = 1.0f;
+    float mic_z = 1.0f;
+    glm::vec3 starting_point = glm::vec3(mic_x, mic_y, mic_z);
+    glm::vec3 mic_velocity = glm::vec3(-1.0f, 0.0f, 0.0f);
 };
 Microphone_pos Mic_pos;
 
@@ -57,8 +57,8 @@ std::vector<Triangle> triangles;
 std::vector<Triangle> microphone;
 
 void drawIcosahedron(float radius, std::vector<Triangle>);
-void drawMicrophone(float mic_radius, std::vector<Triangle>);
-void checkMicrophone(float mic_radius, std::vector<node> wave, std::vector<node> mic);
+void drawMicrophone();
+void checkMicrophone();
 int pruneSlowNodes(float minSpeed);
 
 
@@ -93,41 +93,58 @@ static int midpoint_index(int i0, int i1,
     return idx;
 }
 
-void updatePhysics(float dt) {
-    const float cuboidHalfWidth = Cube.width / 2.0f;
-    const float cuboidHalfHeight = Cube.height / 2.0f;
-    const float cuboidHalfDepth = Cube.depth / 2.0f;
-    const float elasticity = 0.8f; // wspoolczynnik sprezystosci (0.8 = 80% energii zachowane)
-    
+float mic_radius = 0.2f;
 
-    for (auto& node : nodes) {
-        // Aktualizacja pozycji
-        node.position = node.position + node.velocity * dt;
-        node.energy = node.energy * 0.999;
+void updatePhysics(float dt)
+{
+    const float halfW = 0.5f * Cube.width;
+    const float halfH = 0.5f * Cube.height;
+    const float halfD = 0.5f * Cube.depth;
 
-        // Sprawdzanie kolizji ze scianami prostopadloscianu i odbicia
-        
+    const float e = 0.8f;   // wsp. sprê¿ystoœci
+    const float eps = 0.001f; // minimalne odsuniêcie od œciany
 
-        if (node.position.y <= -cuboidHalfHeight + Cube.y_offset || node.position.y >= cuboidHalfHeight + Cube.y_offset)
-        {
-            node.velocity.y = -node.velocity.y * elasticity;
-            node.position.y = (node.position.y < 0) ? -cuboidHalfHeight + Cube.y_offset + 0.001f : cuboidHalfHeight + Cube.y_offset - 0.001f;
+    // Jeœli masz promieñ mikrofonu, ustaw go tu (0.0f gdy brak):
+    const float micR = mic_radius; // albo 0.0f, jeœli nie masz pola radius
+
+    // Pomocnik do odbicia w 1D (szybki, inline'owalny)
+    auto bounce1D = [&](float& pos, float& vel, float minb, float maxb) {
+        if (pos < minb) {
+            pos = minb + eps;
+            vel = std::fabs(vel) * e;     // skieruj „do œrodka”
         }
-
-        if (node.position.x <= -cuboidHalfWidth + Cube.x_offset || node.position.x >= cuboidHalfWidth + Cube.x_offset)
-        {
-            node.velocity.x = -node.velocity.x * elasticity;
-            // Korekta pozycji aby nie utknac w scianie
-            node.position.x = (node.position.x < 0) ? -cuboidHalfWidth + Cube.x_offset + 0.001f : cuboidHalfWidth + Cube.x_offset - 0.001f;
+        else if (pos > maxb) {
+            pos = maxb - eps;
+            vel = -std::fabs(vel) * e;    // skieruj „do œrodka”
         }
+        };
 
-        if (node.position.z <= -cuboidHalfDepth + Cube.z_offset || node.position.z >= cuboidHalfDepth + Cube.z_offset)
-        {
-            node.velocity.z = -node.velocity.z * elasticity;
-            node.position.z = (node.position.z < 0) ? -cuboidHalfDepth + Cube.z_offset + 0.001f : cuboidHalfDepth + Cube.z_offset - 0.001f;
-        }
+    // --- 1) Integracja i odbicie mikrofonu (poza pêtl¹ równoleg³¹) ---
+    Mic_pos.mic_x += Mic_pos.mic_velocity.x * dt;
+    Mic_pos.mic_y += Mic_pos.mic_velocity.y * dt;
+    Mic_pos.mic_z += Mic_pos.mic_velocity.z * dt;
+
+    // Odbicia mikrofonu od œcian basenu, z uwzglêdnieniem promienia
+    bounce1D(Mic_pos.mic_x, Mic_pos.mic_velocity.x, -halfW + micR, halfW - micR);
+    bounce1D(Mic_pos.mic_y, Mic_pos.mic_velocity.y, -halfH + micR, halfH - micR);
+    bounce1D(Mic_pos.mic_z, Mic_pos.mic_velocity.z, -halfD + micR, halfD - micR);
+
+    // --- 2) Integracja i odbicia punktów siatki ---
+#pragma omp parallel for schedule(static)
+    for (int i = 0; i < (int)nodes.size(); ++i) {
+        auto& p = nodes[i].position;
+        auto& v = nodes[i].velocity;
+
+        nodes[i].energy *= e;
+
+        // Integracja (semi-implicit Euler by³by stabilniejszy, ale zostawiamy Twój schemat)
+        p += v * dt;
+
+        // Odbicia w XYZ
+        bounce1D(p.x, v.x, -halfW, halfW);
+        bounce1D(p.y, v.y, -halfH, halfH);
+        bounce1D(p.z, v.z, -halfD, halfD);
     }
-
 }
 
 float calculateTriangleArea(int a, int b, int c) {
@@ -446,12 +463,21 @@ bool refineIcosahedron_chunked_mt(float maxArea,
     for (size_t i = 0; i < edges.size(); ++i) {
         edgeMidIdx[i] = midpoint_index_nodes_cached(edges[i].a, edges[i].b);
     }
-    auto edge_lookup = [&](int u, int v)->int {
+    //auto edge_lookup = [&](int u, int v)->int {
+    //    if (u > v) std::swap(u, v);
+    //    Edge key{ u,v };
+    //    auto it = std::lower_bound(edges.begin(), edges.end(), key, edge_less);
+    //    // przy poprawnym zbiorze powinien istnieæ
+    //    return edgeMidIdx[size_t(it - edges.begin())];
+    //    };
+
+    auto edge_lookup = [&](int u, int v) -> int {
         if (u > v) std::swap(u, v);
-        Edge key{ u,v };
-        auto it = std::lower_bound(edges.begin(), edges.end(), key, edge_less);
-        // przy poprawnym zbiorze powinien istnieæ
-        return edgeMidIdx[size_t(it - edges.begin())];
+        const uint64_t key = edge_key(u, v);
+        auto it = gEdgeMidCache.find(key);
+        // w debugzie warto asercjê:
+        // assert(it != gEdgeMidCache.end());
+        return it->second;
         };
 
     // --- FAZA 3: RÓWNOLEGLE zbuduj nowe trójk¹ty do buforów per-w¹tek ---
@@ -571,8 +597,8 @@ void calculateFPS() {
     }
 }
 
-float radius = 0.2f;
-float mic_radius = 0.1f;
+float radius = 0.5f;
+//float mic_radius = 0.2f;
 const float H_ANGLE = M_PI / 180 * 72; // 72 stopni w radianach
 const float V_ANGLE = atanf(1.0f / 2); // Kat wierzcholka
 
@@ -621,11 +647,6 @@ int main()
     glfwSetScrollCallback(window, scroll_callback);
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
 
-    //--POCZATKOWA POZYCJA MIKROFONU---
-    Mic_pos.mic_x = 3.5f;
-    Mic_pos.mic_y = 2.0f;
-    Mic_pos.mic_z = 1.0f;
-
     while (!glfwWindowShouldClose(window))
     {
         float currentFrame = glfwGetTime();
@@ -647,9 +668,8 @@ int main()
         glLoadMatrixf(&view[0][0]);
 
         renderScene();
-
         // Oblicz FPS
-        calculateFPS();
+        //calculateFPS();
 
         glfwSwapBuffers(window);
         glfwPollEvents();
@@ -843,7 +863,7 @@ void renderScene()
         }
 
         // --- Parametr gêstoœci: ka¿dy poziom ×4 liczba trójk¹tów ---
-        constexpr int SUBDIV = 2; // 2 optymalnie, wiecej laguje
+        constexpr int SUBDIV = 3; // 2 optymalnie, wiecej laguje
 
         // --- 12 wierzcho³ków  na sferze o promieniu 'radius' ---
         const float t = (1.0f + std::sqrt(5.0f)) * 0.5f; // z³ota proporcja
@@ -899,7 +919,7 @@ void renderScene()
         for (const auto& p : verts) {
             node nd;
             nd.position = p;
-            nd.velocity = nd.position * 1.0f; 
+            nd.velocity = nd.position * 0.2f;
             nodes.push_back(nd);
         }
 
@@ -912,10 +932,6 @@ void renderScene()
         first = false;
         buildSphereBuffers(/*dynamic=*/true);
     }
-
-    //MIKROFON TUTAJ
-    drawMicrophone(mic_radius, microphone);
-    checkMicrophone(mic_radius, nodes, mic_nodes);
 
     //buildSphereBuffers(nodes, triangles, /*dynamic=*/true); //bledne bo caly czas sie wykonywalo
 
@@ -945,7 +961,7 @@ void renderScene()
         budget = triangles.size() / 12;
         int threads = std::max(1u, std::thread::hardware_concurrency());
 
-        if (refineIcosahedron_chunked_mt(0.05f, budget,threads)) {
+        if (refineIcosahedron_chunked_mt(0.05f, budget, threads)) {
             gMeshDirty = true; // przebuduj bufory tylko gdy zasz³a zmiana
         }
 
@@ -961,7 +977,8 @@ void renderScene()
     Cube.height = 60.0f;
     Cube.depth = 100.0f;*/
     updatePhysics(dt);
-    //int removed = pruneSlowNodes(nodes, /*minSpeed=*/2.00f); // m/s (dobierz)
+    pruneSlowNodes(/*minSpeed=*/0.0f); // m/s (dobierz)
+    //removeSlowNodes(/*minSpeed=*/4.00f);
 
     // 1) odbuduj bufory tylko gdy trzeba
     if (gMeshDirty || nodes.size() != gLastV || triangles.size() != gLastI) {
@@ -976,19 +993,20 @@ void renderScene()
     }
 
     // 3) rysuj TYLKO z VBO/IBO
-    drawSphereWithBuffers();
-
-    
-    //kulka
-    glDisable(GL_BLEND);
-    glEnable(GL_DEPTH_TEST);
-    //drawIcosahedron(0.2f, nodes, triangles);
     //drawSphereWithBuffers();
-    //glEnable(GL_DEPTH_TEST);
+
+
+    //kulka
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDisable(GL_DEPTH_TEST);
+    drawSphereWithBuffers();
+    //drawIcosahedron(radius, triangles);
+    drawMicrophone();
+    checkMicrophone();
+    glEnable(GL_DEPTH_TEST);
     // Basen
-    glColor4f(0.0f, 0.0f, 1.0f, 0.5f);
+    glColor4f(0.0f, 0.0f, 1.0f, 0.1f);
     //drawCuboid(Cube.width, Cube.height, Cube.depth);
     drawCuboidTransparentSorted();
 }
@@ -1036,13 +1054,21 @@ int printOversizedTriangles(float maxArea) {
     return count;
 }
 
+// === DODAJ gdzieœ nad pruneSlowNodes (np. obok edge_key / normalize_to_radius) ===
+static inline bool touchesMicrophone(const glm::vec3& p) {
+    const glm::vec3 c(Mic_pos.mic_x, Mic_pos.mic_y, Mic_pos.mic_z);
+    const glm::vec3 d = p - c;
+    // test sfery: odleg³oœæ^2 <= mic_radius^2
+    return glm::dot(d, d) <= (mic_radius * mic_radius); // TO DO: trzeba sprawdzic dobre odleglosci, zeby mikrofon nie wykrywal za duzych kawalkow
+}
+
 // Usuwa wêz³y o |velocity| < minSpeed i remapuje trójk¹ty.
 // Zwraca ile wêz³ów usuniêto.
+// === PODMIEÑ ca³¹ funkcjê pruneSlowNodes na tê wersjê ===
 int pruneSlowNodes(float minSpeed) {
     const float thr2 = minSpeed * minSpeed;
     const size_t N = nodes.size();
 
-    // mapowanie stary_index -> nowy_index (=-1 gdy usuniêty)
     std::vector<int> remap(N, -1);
     std::vector<node> kept;
     kept.reserve(N);
@@ -1050,7 +1076,12 @@ int pruneSlowNodes(float minSpeed) {
     for (size_t i = 0; i < N; ++i) {
         const glm::vec3& v = nodes[i].velocity;
         const float v2 = glm::dot(v, v);
-        if (v2 >= thr2) {
+
+        // Zachowaj node TYLKO jeœli jest szybki i nie dotyka mikrofonu
+        const bool fastEnough = (v2 >= thr2);
+        const bool hitMic = touchesMicrophone(nodes[i].position);
+
+        if (fastEnough && !hitMic) {
             remap[i] = (int)kept.size();
             kept.push_back(nodes[i]);
         }
@@ -1060,16 +1091,16 @@ int pruneSlowNodes(float minSpeed) {
         return 0; // nic nie usuniêto
     }
 
-    // przebuduj trójk¹ty — zostaw tylko te, które w ca³oœci przetrwa³y
+    // Przebuduj trójk¹ty – zostaw tylko te, które w ca³oœci przetrwa³y
     std::vector<Triangle> newTris;
     newTris.reserve(triangles.size());
     for (const auto& t : triangles) {
-        int a = t.indices[0], b = t.indices[1], c = t.indices[2];
-        int na = remap[a], nb = remap[b], nc = remap[c];
+        int na = remap[t.indices[0]];
+        int nb = remap[t.indices[1]];
+        int nc = remap[t.indices[2]];
         if (na >= 0 && nb >= 0 && nc >= 0) {
             newTris.push_back({ { na, nb, nc } });
         }
-        // inaczej: trójk¹t wypad³, bo dotyka³ usuniêtego wêz³a
     }
 
     nodes.swap(kept);
@@ -1086,19 +1117,19 @@ int pruneSlowNodes(float minSpeed) {
 }
 
 void drawCuboidTransparentSorted() {
-    float halfWidth =  Cube.width / 2.0f;
-    float halfHeight =  Cube.height / 2.0f;
-    float halfDepth =  Cube.depth / 2.0f;
+    float halfWidth = Cube.width / 2.0f;
+    float halfHeight = Cube.height / 2.0f;
+    float halfDepth = Cube.depth / 2.0f;
 
     glm::vec3 vertices[] = {
-        { -halfWidth + Cube.x_offset, -halfHeight + Cube.y_offset,  halfDepth + Cube.z_offset},
-        {  halfWidth + Cube.x_offset, -halfHeight + Cube.y_offset,  halfDepth + Cube.z_offset},
-        {  halfWidth + Cube.x_offset,  halfHeight + Cube.y_offset,  halfDepth + Cube.z_offset},
-        { -halfWidth + Cube.x_offset,  halfHeight + Cube.y_offset,  halfDepth + Cube.z_offset},
-        { -halfWidth + Cube.x_offset, -halfHeight + Cube.y_offset, -halfDepth + Cube.z_offset},
-        {  halfWidth + Cube.x_offset, -halfHeight + Cube.y_offset, -halfDepth + Cube.z_offset},
-        {  halfWidth + Cube.x_offset,  halfHeight + Cube.y_offset, -halfDepth + Cube.z_offset},
-        { -halfWidth + Cube.x_offset,  halfHeight + Cube.y_offset, -halfDepth + Cube.z_offset}
+        { -halfWidth, -halfHeight,  halfDepth },
+        {  halfWidth, -halfHeight,  halfDepth },
+        {  halfWidth,  halfHeight,  halfDepth },
+        { -halfWidth,  halfHeight,  halfDepth },
+        { -halfWidth, -halfHeight, -halfDepth },
+        {  halfWidth, -halfHeight, -halfDepth },
+        {  halfWidth,  halfHeight, -halfDepth },
+        { -halfWidth,  halfHeight, -halfDepth }
     };
 
     struct Face {
@@ -1174,50 +1205,49 @@ void drawIcosahedron(float radius, std::vector<Triangle> triangles) {
     glEnd();
 }
 
-void drawMicrophone(float mic_radius, std::vector<Triangle>)
+void drawMicrophone()
 {
-    // Rysowanie scian 
-    glColor4f(6.0f, 0.4f, 0.8f, 0.75f);
+    //glPushMatrix();
+    //glTranslatef(Mic_pos.mic_x, Mic_pos.mic_y, Mic_pos.mic_z);
+    // jeœli masz orientacjê: glRotatef(angle_deg, ax.x, ax.y, ax.z);
+    // jeœli masz skalê:     glScalef(sx, sy, sz);
+    glm::vec3 actual_position = glm::vec3(Mic_pos.mic_x, Mic_pos.mic_y, Mic_pos.mic_z);
+    // ŒCIANY (pamiêtaj: sk³adniki koloru w [0..1])
+    glColor4f(1.0f, 0.4f, 0.8f, 0.5f);
     glBegin(GL_TRIANGLES);
     for (const auto& mic : microphone) {
         for (int j = 0; j < 3; ++j) {
-            glVertex3f(mic_nodes[mic.indices[j]].position.x,
-                mic_nodes[mic.indices[j]].position.y,
-                mic_nodes[mic.indices[j]].position.z);
+            const auto& p = mic_nodes[mic.indices[j]].position + (actual_position - Mic_pos.starting_point); // lokalne (wokó³ œrodka)
+            glVertex3f(p.x, p.y, p.z);
         }
     }
     glEnd();
 
-    // Rysowanie krawedzi (czarne)
+    // KRAWÊDZIE
     glColor4f(0.0f, 0.0f, 0.0f, 0.5f);
     glBegin(GL_LINES);
     for (const auto& mic : microphone) {
         for (int j = 0; j < 3; ++j) {
             int current = mic.indices[j];
             int next = mic.indices[(j + 1) % 3];
-            glVertex3f(mic_nodes[current].position.x, mic_nodes[current].position.y, mic_nodes[current].position.z);
-            glVertex3f(mic_nodes[next].position.x, mic_nodes[next].position.y, mic_nodes[next].position.z);
+            const auto& a = mic_nodes[current].position + (actual_position - Mic_pos.starting_point);
+            const auto& b = mic_nodes[next].position + (actual_position - Mic_pos.starting_point);
+            glVertex3f(a.x, a.y, a.z);
+            glVertex3f(b.x, b.y, b.z);
         }
     }
     glEnd();
+
+    //glPopMatrix();
 }
 
-void checkMicrophone(float mic_radius, std::vector<node> wave, std::vector<node> mic)
+void checkMicrophone()
 {
-    for(const auto& wav : wave)
+    for (const auto& wav : nodes)
     {
-        for (const auto& m : mic)
+        if (sqrt(pow((wav.position.x - Mic_pos.mic_x), 2) + pow((wav.position.y - Mic_pos.mic_y), 2) + pow((wav.position.z - Mic_pos.mic_z), 2)) < sqrt(2)*mic_radius)
         {
-            /*
-            if (abs(wav.position.x - m.position.x) < mic_radius && abs(wav.position.y - m.position.y) < mic_radius && abs(wav.position.z - m.position.z) < mic_radius)
-            {
-                std::cout << "ODCZYT MIKROFONU" << std::endl;
-            }
-            */
-            if (sqrt( pow((wav.position.x - m.position.x),2) + pow((wav.position.y - m.position.y), 2) + pow((wav.position.z - m.position.z), 2)) < mic_radius)
-            {
-                std::cout << "ODCZYT MIKROFONU" << std::endl;
-            }
+            std::cout << "ODCZYT MIKROFONU" << std::endl;
         }
     }
 }
