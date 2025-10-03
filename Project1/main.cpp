@@ -19,7 +19,7 @@ void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
 void processInput(GLFWwindow* window);
 void renderScene();
 //void drawCuboid(float width, float height, float depth);
-void drawCuboidTransparentSorted();
+void drawCuboidTransparentSorted(struct Cuboid_dimensions temp_Cube);
 int printOversizedTriangles(float maxArea);
 //int removeSlowNodes(float minSpeed);
 
@@ -33,11 +33,16 @@ std::vector<node> nodes;
 std::vector<node> mic_nodes;
 
 struct Cuboid_dimensions {
-    float width = 8.0f;
-    float height = 6.0f;
-    float depth = 10.0f;
+    float width = 0.0f;
+    float height = .0f;
+    float depth = 0.0f;
+    float x_offset = 0.0f;
+    float y_offset = 0.0f;
+    float z_offset = 0.0f;
 };
-Cuboid_dimensions Cube;
+Cuboid_dimensions Cube; //POZYCJA BASENU W MAIN
+Cuboid_dimensions Obstacle;//PRZESZKODA W BASENIE
+
 
 //MIKROFON
 struct Microphone_pos {
@@ -95,11 +100,11 @@ static int midpoint_index(int i0, int i1,
 
 float mic_radius = 0.2f;
 
-void updatePhysics(float dt)
+void updatePhysics(float dt, struct Cuboid_dimensions Pool, struct Cuboid_dimensions temp_Obstacle)
 {
-    const float halfW = 0.5f * Cube.width;
-    const float halfH = 0.5f * Cube.height;
-    const float halfD = 0.5f * Cube.depth;
+    const float Pool_halfW = 0.5f * Pool.width;
+    const float Pool_halfH = 0.5f * Pool.height;
+    const float Pool_halfD = 0.5f * Pool.depth;
 
     const float e = 0.8f;   // wsp. sprê¿ystoœci
     const float eps = 0.001f; // minimalne odsuniêcie od œciany
@@ -108,30 +113,97 @@ void updatePhysics(float dt)
     const float micR = mic_radius; // albo 0.0f, jeœli nie masz pola radius
 
     // Pomocnik do odbicia w 1D (szybki, inline'owalny)
-    auto bounce1D = [&](float& pos, float& vel, float minb, float maxb) {
-        if (pos < minb) {
-            pos = minb + eps;
-            vel = std::fabs(vel) * e;     // skieruj „do œrodka”
-        }
-        else if (pos > maxb) {
-            pos = maxb - eps;
-            vel = -std::fabs(vel) * e;    // skieruj „do œrodka”
-        }
+    auto bounce1D = [&](float& pos, float& vel, float minb, float maxb) 
+    {
+            if (pos < minb) {
+                vel *= -1;     // skieruj „do œrodka”
+            }
+            else if (pos > maxb) {
+                vel *= -1;    // skieruj „do œrodka”
+            }
+    };
+
+    auto bounceObstacleMic = [&](struct Microphone_pos& temp_Mic_pos,  struct Cuboid_dimensions temp_Obstacle)
+    {
+            const float temp_Obstacle_halfW = 0.5f * temp_Obstacle.width;
+            const float temp_Obstacle_halfH = 0.5f * temp_Obstacle.height;
+            const float temp_Obstacle_halfD = 0.5f * temp_Obstacle.depth;
+
+            if (
+                (temp_Mic_pos.mic_x > -temp_Obstacle_halfW + temp_Obstacle.x_offset + micR && temp_Mic_pos.mic_y > -temp_Obstacle_halfH + temp_Obstacle.y_offset + micR
+                && temp_Mic_pos.mic_z > -temp_Obstacle_halfD + temp_Obstacle.z_offset + micR) 
+                && 
+                (temp_Mic_pos.mic_x < temp_Obstacle_halfW + temp_Obstacle.x_offset + micR && temp_Mic_pos.mic_y < temp_Obstacle_halfH + temp_Obstacle.y_offset + micR
+                 && temp_Mic_pos.mic_z < temp_Obstacle_halfD + temp_Obstacle.z_offset + micR)
+                )
+            {
+                std::cout << "KOLIZJA Z MIKROFONEM" << std::endl;
+
+                if (temp_Mic_pos.mic_x - 5 * eps < -temp_Obstacle_halfW + temp_Obstacle.x_offset || temp_Mic_pos.mic_x + 5 * eps > temp_Obstacle_halfW + temp_Obstacle.x_offset)
+                {
+                    temp_Mic_pos.mic_velocity.x *= -1;
+                }
+                else if (temp_Mic_pos.mic_y - 5 * eps < -temp_Obstacle_halfH + temp_Obstacle.y_offset || temp_Mic_pos.mic_y + 5 * eps > temp_Obstacle_halfH + temp_Obstacle.y_offset)
+                {
+                    temp_Mic_pos.mic_velocity.y *= -1;
+                }
+                else if (temp_Mic_pos.mic_z - 5 * eps < -temp_Obstacle_halfD + temp_Obstacle.z_offset || temp_Mic_pos.mic_z + 5 * eps > temp_Obstacle_halfD + temp_Obstacle.z_offset)
+                {
+                    temp_Mic_pos.mic_velocity.z *= -1;
+                }
+            }
+
+    };
+
+    auto bounceObstacleWave = [&](node& temp_node, struct Cuboid_dimensions temp_Obstacle)
+        {
+            const float temp_Obstacle_halfW = 0.5f * temp_Obstacle.width;
+            const float temp_Obstacle_halfH = 0.5f * temp_Obstacle.height;
+            const float temp_Obstacle_halfD = 0.5f * temp_Obstacle.depth;
+
+            if ((temp_node.position.x > -temp_Obstacle_halfW + temp_Obstacle.x_offset && temp_node.position.y > -temp_Obstacle_halfH + temp_Obstacle.y_offset
+                && temp_node.position.z  > -temp_Obstacle_halfD + temp_Obstacle.z_offset)
+                &&
+                (temp_node.position.x  < temp_Obstacle_halfW + temp_Obstacle.x_offset && temp_node.position.y < temp_Obstacle_halfH + temp_Obstacle.y_offset
+                    && temp_node.position.z   < temp_Obstacle_halfD + temp_Obstacle.z_offset))
+            {
+                //std::cout << "KOLIZJA Z FALA" << std::endl;
+                if (temp_node.position.x - 5 * eps < -temp_Obstacle_halfW + temp_Obstacle.x_offset || temp_node.position.x + 5 * eps > temp_Obstacle_halfW + temp_Obstacle.x_offset)
+                {
+                    temp_node.velocity.x *= -1;
+                }
+                else if (temp_node.position.y - 5 * eps < -temp_Obstacle_halfH + temp_Obstacle.y_offset || temp_node.position.y + 5 * eps > temp_Obstacle_halfH + temp_Obstacle.y_offset)
+                {
+                    temp_node.velocity.y *= -1;
+                }
+                else if (temp_node.position.z - 5 * eps < -temp_Obstacle_halfD + temp_Obstacle.z_offset || temp_node.position.z + 5 * eps > temp_Obstacle_halfD + temp_Obstacle.z_offset)
+                {
+                    temp_node.velocity.z *= -1;
+                }
+            }
+
+
         };
+
 
     // --- 1) Integracja i odbicie mikrofonu (poza pêtl¹ równoleg³¹) ---
     Mic_pos.mic_x += Mic_pos.mic_velocity.x * dt;
     Mic_pos.mic_y += Mic_pos.mic_velocity.y * dt;
     Mic_pos.mic_z += Mic_pos.mic_velocity.z * dt;
-
+    
     // Odbicia mikrofonu od œcian basenu, z uwzglêdnieniem promienia
-    bounce1D(Mic_pos.mic_x, Mic_pos.mic_velocity.x, -halfW + micR, halfW - micR);
-    bounce1D(Mic_pos.mic_y, Mic_pos.mic_velocity.y, -halfH + micR, halfH - micR);
-    bounce1D(Mic_pos.mic_z, Mic_pos.mic_velocity.z, -halfD + micR, halfD - micR);
+    bounce1D(Mic_pos.mic_x, Mic_pos.mic_velocity.x, -Pool_halfW + Pool.x_offset + micR, Pool_halfW + Pool.x_offset - micR);
+    bounce1D(Mic_pos.mic_y, Mic_pos.mic_velocity.y, -Pool_halfH + Pool.y_offset + micR, Pool_halfH + Pool.y_offset - micR);
+    bounce1D(Mic_pos.mic_z, Mic_pos.mic_velocity.z, -Pool_halfD + Pool.z_offset + micR, Pool_halfD + Pool.z_offset - micR);
 
+    //odbicia od przeszkody (MIKROFON)
+    bounceObstacleMic(Mic_pos, temp_Obstacle);
+    
+   
     // --- 2) Integracja i odbicia punktów siatki ---
 #pragma omp parallel for schedule(static)
-    for (int i = 0; i < (int)nodes.size(); ++i) {
+    for (int i = 0; i < (int)nodes.size(); ++i) 
+    {
         auto& p = nodes[i].position;
         auto& v = nodes[i].velocity;
 
@@ -141,9 +213,14 @@ void updatePhysics(float dt)
         p += v * dt;
 
         // Odbicia w XYZ
-        bounce1D(p.x, v.x, -halfW, halfW);
-        bounce1D(p.y, v.y, -halfH, halfH);
-        bounce1D(p.z, v.z, -halfD, halfD);
+        bounce1D(p.x, v.x, -Pool_halfW + Pool.x_offset, Pool_halfW + Pool.x_offset);
+        bounce1D(p.y, v.y, -Pool_halfH + Pool.y_offset, Pool_halfH + Pool.y_offset);
+        bounce1D(p.z, v.z, -Pool_halfD + Pool.z_offset, Pool_halfD + Pool.z_offset);
+
+        //odbicia od przeszkody (FALA)
+        //--------MOZNA ZAKOMENTOWAC--------
+        bounceObstacleWave(nodes[i], temp_Obstacle);
+
     }
 }
 
@@ -621,6 +698,7 @@ void scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
 
 static void glfwErrorCallback(int code, const char* desc) { fprintf(stderr, "GLFW[%d]: %s\n", code, desc); }
 
+//--------MAIN---------
 int main()
 {
     glfwSetErrorCallback(glfwErrorCallback);
@@ -646,6 +724,20 @@ int main()
     glfwSetMouseButtonCallback(window, mouse_button_callback);
     glfwSetScrollCallback(window, scroll_callback);
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+
+    //POZYCJA I DEKLARACJA BASENU
+    Cube.width = 8.0f;
+    Cube.height = 6.0f;
+    Cube.depth = 10.0f;
+
+    //PRZESZKODA
+    Obstacle.width = 0.3f;
+    Obstacle.height = 0.7f;
+    Obstacle.depth = 0.7f;
+    Obstacle.x_offset = -3.0f;
+    Obstacle.y_offset = 1.0f;
+    Obstacle.z_offset = 1.0f;
+
 
     while (!glfwWindowShouldClose(window))
     {
@@ -976,7 +1068,7 @@ void renderScene()
     Cube.width = 80.0f;
     Cube.height = 60.0f;
     Cube.depth = 100.0f;*/
-    updatePhysics(dt);
+    updatePhysics(dt, Cube, Obstacle);
     //--NAJPIERW SPRAWDZA CZY MIKROFON DOTYKA I JEST ODCZYT---
     for (size_t i = 0; i < nodes.size(); ++i)
     {
@@ -1018,7 +1110,14 @@ void renderScene()
     // Basen
     glColor4f(0.0f, 0.0f, 1.0f, 0.1f);
     //drawCuboid(Cube.width, Cube.height, Cube.depth);
-    drawCuboidTransparentSorted();
+    drawCuboidTransparentSorted(Cube);
+
+    //PRZESZKODA
+    glDisable(GL_DEPTH_TEST);
+    glColor4f(0.2f, 0.5f, 0.2f, 0.7f);
+    drawCuboidTransparentSorted(Obstacle);
+
+
 }
 
 int printOversizedTriangles(float maxArea) {
@@ -1126,20 +1225,20 @@ int pruneSlowNodes(float minSpeed) {
     return (int)(N - nodes.size());
 }
 
-void drawCuboidTransparentSorted() {
-    float halfWidth = Cube.width / 2.0f;
-    float halfHeight = Cube.height / 2.0f;
-    float halfDepth = Cube.depth / 2.0f;
+void drawCuboidTransparentSorted(struct Cuboid_dimensions temp_Cube) {
+    float halfWidth = temp_Cube.width / 2.0f;
+    float halfHeight = temp_Cube.height / 2.0f;
+    float halfDepth = temp_Cube.depth / 2.0f;
 
     glm::vec3 vertices[] = {
-        { -halfWidth, -halfHeight,  halfDepth },
-        {  halfWidth, -halfHeight,  halfDepth },
-        {  halfWidth,  halfHeight,  halfDepth },
-        { -halfWidth,  halfHeight,  halfDepth },
-        { -halfWidth, -halfHeight, -halfDepth },
-        {  halfWidth, -halfHeight, -halfDepth },
-        {  halfWidth,  halfHeight, -halfDepth },
-        { -halfWidth,  halfHeight, -halfDepth }
+         { -halfWidth + temp_Cube.x_offset, -halfHeight + temp_Cube.y_offset,  halfDepth + temp_Cube.z_offset},
+         {  halfWidth + temp_Cube.x_offset, -halfHeight + temp_Cube.y_offset,  halfDepth + temp_Cube.z_offset},
+         {  halfWidth + temp_Cube.x_offset,  halfHeight + temp_Cube.y_offset,  halfDepth + temp_Cube.z_offset},
+         { -halfWidth + temp_Cube.x_offset,  halfHeight + temp_Cube.y_offset,  halfDepth + temp_Cube.z_offset},
+         { -halfWidth + temp_Cube.x_offset, -halfHeight + temp_Cube.y_offset, -halfDepth + temp_Cube.z_offset},
+         {  halfWidth + temp_Cube.x_offset, -halfHeight + temp_Cube.y_offset, -halfDepth + temp_Cube.z_offset},
+         {  halfWidth + temp_Cube.x_offset,  halfHeight + temp_Cube.y_offset, -halfDepth + temp_Cube.z_offset},
+         { -halfWidth + temp_Cube.x_offset,  halfHeight + temp_Cube.y_offset, -halfDepth + temp_Cube.z_offset}
     };
 
     struct Face {
