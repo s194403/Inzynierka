@@ -32,9 +32,12 @@ std::vector<node> nodes;
 std::vector<node> mic_nodes;
 
 struct Cuboid_dimensions {
-    float width = 20.0f;
-    float height = 12.0f;
-    float depth = 20.0f;
+    float width = 5.0f;
+    float height = 5.0f;
+    float depth = 5.0f;
+    float x_offset = 2.0f;
+    float y_offset = 0.0f;
+    float z_offset = 0.0f;
 };
 Cuboid_dimensions Cube;
 
@@ -105,23 +108,23 @@ void updatePhysics(float dt) {
         // Sprawdzanie kolizji ze scianami prostopadloscianu i odbicia
         
 
-        if (node.position.y <= -cuboidHalfHeight || node.position.y >= cuboidHalfHeight)
+        if (node.position.y <= -cuboidHalfHeight + Cube.y_offset || node.position.y >= cuboidHalfHeight + Cube.y_offset)
         {
             node.velocity.y = -node.velocity.y * elasticity;
-            node.position.y = (node.position.y < 0) ? -cuboidHalfHeight + 0.001f : cuboidHalfHeight - 0.001f;
+            node.position.y = (node.position.y < 0) ? -cuboidHalfHeight + Cube.y_offset + 0.001f : cuboidHalfHeight + Cube.y_offset - 0.001f;
         }
 
-        if (node.position.x <= -cuboidHalfWidth || node.position.x >= cuboidHalfWidth)
+        if (node.position.x <= -cuboidHalfWidth + Cube.x_offset || node.position.x >= cuboidHalfWidth + Cube.x_offset)
         {
             node.velocity.x = -node.velocity.x * elasticity;
             // Korekta pozycji aby nie utknac w scianie
-            node.position.x = (node.position.x < 0) ? -cuboidHalfWidth + 0.001f : cuboidHalfWidth - 0.001f;
+            node.position.x = (node.position.x < 0) ? -cuboidHalfWidth + Cube.x_offset + 0.001f : cuboidHalfWidth + Cube.x_offset - 0.001f;
         }
 
-        if (node.position.z <= -cuboidHalfDepth || node.position.z >= cuboidHalfDepth)
+        if (node.position.z <= -cuboidHalfDepth + Cube.z_offset || node.position.z >= cuboidHalfDepth + Cube.z_offset)
         {
             node.velocity.z = -node.velocity.z * elasticity;
-            node.position.z = (node.position.z < 0) ? -cuboidHalfDepth + 0.001f : cuboidHalfDepth - 0.001f;
+            node.position.z = (node.position.z < 0) ? -cuboidHalfDepth + Cube.z_offset + 0.001f : cuboidHalfDepth + Cube.z_offset - 0.001f;
         }
     }
 
@@ -644,8 +647,6 @@ int main()
         glLoadMatrixf(&view[0][0]);
 
         renderScene();
-        //ZMIEN POZYCJE MIKROFONU
-        Mic_pos.mic_x = Mic_pos.mic_x - 1.0f;
 
         // Oblicz FPS
         calculateFPS();
@@ -1085,19 +1086,19 @@ int pruneSlowNodes(float minSpeed) {
 }
 
 void drawCuboidTransparentSorted() {
-    float halfWidth = Cube.width / 2.0f;
-    float halfHeight = Cube.height / 2.0f;
-    float halfDepth = Cube.depth / 2.0f;
+    float halfWidth =  Cube.width / 2.0f;
+    float halfHeight =  Cube.height / 2.0f;
+    float halfDepth =  Cube.depth / 2.0f;
 
     glm::vec3 vertices[] = {
-        { -halfWidth, -halfHeight,  halfDepth },
-        {  halfWidth, -halfHeight,  halfDepth },
-        {  halfWidth,  halfHeight,  halfDepth },
-        { -halfWidth,  halfHeight,  halfDepth },
-        { -halfWidth, -halfHeight, -halfDepth },
-        {  halfWidth, -halfHeight, -halfDepth },
-        {  halfWidth,  halfHeight, -halfDepth },
-        { -halfWidth,  halfHeight, -halfDepth }
+        { -halfWidth + Cube.x_offset, -halfHeight + Cube.y_offset,  halfDepth + Cube.z_offset},
+        {  halfWidth + Cube.x_offset, -halfHeight + Cube.y_offset,  halfDepth + Cube.z_offset},
+        {  halfWidth + Cube.x_offset,  halfHeight + Cube.y_offset,  halfDepth + Cube.z_offset},
+        { -halfWidth + Cube.x_offset,  halfHeight + Cube.y_offset,  halfDepth + Cube.z_offset},
+        { -halfWidth + Cube.x_offset, -halfHeight + Cube.y_offset, -halfDepth + Cube.z_offset},
+        {  halfWidth + Cube.x_offset, -halfHeight + Cube.y_offset, -halfDepth + Cube.z_offset},
+        {  halfWidth + Cube.x_offset,  halfHeight + Cube.y_offset, -halfDepth + Cube.z_offset},
+        { -halfWidth + Cube.x_offset,  halfHeight + Cube.y_offset, -halfDepth + Cube.z_offset}
     };
 
     struct Face {
