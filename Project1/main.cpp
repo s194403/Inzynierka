@@ -645,7 +645,7 @@ int main()
 
         renderScene();
         //ZMIEN POZYCJE MIKROFONU
-        Mic_pos.mic_x = Mic_pos.mic_x - 0.1f;
+        Mic_pos.mic_x = Mic_pos.mic_x - 1.0f;
 
         // Oblicz FPS
         calculateFPS();
@@ -1207,7 +1207,13 @@ void checkMicrophone(float mic_radius, std::vector<node> wave, std::vector<node>
     {
         for (const auto& m : mic)
         {
+            /*
             if (abs(wav.position.x - m.position.x) < mic_radius && abs(wav.position.y - m.position.y) < mic_radius && abs(wav.position.z - m.position.z) < mic_radius)
+            {
+                std::cout << "ODCZYT MIKROFONU" << std::endl;
+            }
+            */
+            if (sqrt( pow((wav.position.x - m.position.x),2) + pow((wav.position.y - m.position.y), 2) + pow((wav.position.z - m.position.z), 2)) < mic_radius)
             {
                 std::cout << "ODCZYT MIKROFONU" << std::endl;
             }
