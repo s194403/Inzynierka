@@ -46,14 +46,16 @@ Cuboid_dimensions Obstacle;//PRZESZKODA W BASENIE
 
 
 //MIKROFON
-struct Microphone_pos {
+struct Micophone {
     float mic_x = 1.0f;
     float mic_y = 1.0f;
     float mic_z = 1.0f;
     glm::vec3 starting_point = glm::vec3(mic_x, mic_y, mic_z);
     glm::vec3 mic_velocity = glm::vec3(-1.0f, 0.0f, 0.0f);
+    std::vector<float> energy_reading;
+    std::vector<float> time_reading;
 };
-Microphone_pos Mic_pos;
+Micophone Mic;
 
 
 struct Triangle {
@@ -125,33 +127,33 @@ void updatePhysics(float dt, struct Cuboid_dimensions Pool, struct Cuboid_dimens
             }
     };
 
-    auto bounceObstacleMic = [&](struct Microphone_pos& temp_Mic_pos,  struct Cuboid_dimensions temp_Obstacle)
+    auto bounceObstacleMic = [&](struct Micophone& temp_Mic,  struct Cuboid_dimensions temp_Obstacle)
     {
             const float temp_Obstacle_halfW = 0.5f * temp_Obstacle.width;
             const float temp_Obstacle_halfH = 0.5f * temp_Obstacle.height;
             const float temp_Obstacle_halfD = 0.5f * temp_Obstacle.depth;
 
             if (
-                (temp_Mic_pos.mic_x > -temp_Obstacle_halfW + temp_Obstacle.x_offset + micR && temp_Mic_pos.mic_y > -temp_Obstacle_halfH + temp_Obstacle.y_offset + micR
-                && temp_Mic_pos.mic_z > -temp_Obstacle_halfD + temp_Obstacle.z_offset + micR) 
+                (temp_Mic.mic_x > -temp_Obstacle_halfW + temp_Obstacle.x_offset + micR && temp_Mic.mic_y > -temp_Obstacle_halfH + temp_Obstacle.y_offset + micR
+                && temp_Mic.mic_z > -temp_Obstacle_halfD + temp_Obstacle.z_offset + micR) 
                 && 
-                (temp_Mic_pos.mic_x < temp_Obstacle_halfW + temp_Obstacle.x_offset + micR && temp_Mic_pos.mic_y < temp_Obstacle_halfH + temp_Obstacle.y_offset + micR
-                 && temp_Mic_pos.mic_z < temp_Obstacle_halfD + temp_Obstacle.z_offset + micR)
+                (temp_Mic.mic_x < temp_Obstacle_halfW + temp_Obstacle.x_offset + micR && temp_Mic.mic_y < temp_Obstacle_halfH + temp_Obstacle.y_offset + micR
+                 && temp_Mic.mic_z < temp_Obstacle_halfD + temp_Obstacle.z_offset + micR)
                 )
             {
                 std::cout << "KOLIZJA Z MIKROFONEM" << std::endl;
 
-                if (temp_Mic_pos.mic_x - 5 * eps < -temp_Obstacle_halfW + temp_Obstacle.x_offset || temp_Mic_pos.mic_x + 5 * eps > temp_Obstacle_halfW + temp_Obstacle.x_offset)
+                if (temp_Mic.mic_x - 5 * eps < -temp_Obstacle_halfW + temp_Obstacle.x_offset || temp_Mic.mic_x + 5 * eps > temp_Obstacle_halfW + temp_Obstacle.x_offset)
                 {
-                    temp_Mic_pos.mic_velocity.x *= -1;
+                    temp_Mic.mic_velocity.x *= -1;
                 }
-                else if (temp_Mic_pos.mic_y - 5 * eps < -temp_Obstacle_halfH + temp_Obstacle.y_offset || temp_Mic_pos.mic_y + 5 * eps > temp_Obstacle_halfH + temp_Obstacle.y_offset)
+                else if (temp_Mic.mic_y - 5 * eps < -temp_Obstacle_halfH + temp_Obstacle.y_offset || temp_Mic.mic_y + 5 * eps > temp_Obstacle_halfH + temp_Obstacle.y_offset)
                 {
-                    temp_Mic_pos.mic_velocity.y *= -1;
+                    temp_Mic.mic_velocity.y *= -1;
                 }
-                else if (temp_Mic_pos.mic_z - 5 * eps < -temp_Obstacle_halfD + temp_Obstacle.z_offset || temp_Mic_pos.mic_z + 5 * eps > temp_Obstacle_halfD + temp_Obstacle.z_offset)
+                else if (temp_Mic.mic_z - 5 * eps < -temp_Obstacle_halfD + temp_Obstacle.z_offset || temp_Mic.mic_z + 5 * eps > temp_Obstacle_halfD + temp_Obstacle.z_offset)
                 {
-                    temp_Mic_pos.mic_velocity.z *= -1;
+                    temp_Mic.mic_velocity.z *= -1;
                 }
             }
 
@@ -189,17 +191,17 @@ void updatePhysics(float dt, struct Cuboid_dimensions Pool, struct Cuboid_dimens
 
 
     // --- 1) Integracja i odbicie mikrofonu (poza pêtl¹ równoleg³¹) ---
-    Mic_pos.mic_x += Mic_pos.mic_velocity.x * dt;
-    Mic_pos.mic_y += Mic_pos.mic_velocity.y * dt;
-    Mic_pos.mic_z += Mic_pos.mic_velocity.z * dt;
+    Mic.mic_x += Mic.mic_velocity.x * dt;
+    Mic.mic_y += Mic.mic_velocity.y * dt;
+    Mic.mic_z += Mic.mic_velocity.z * dt;
     
     // Odbicia mikrofonu od œcian basenu, z uwzglêdnieniem promienia
-    bounce1D(Mic_pos.mic_x, Mic_pos.mic_velocity.x, -Pool_halfW + Pool.x_offset + micR, Pool_halfW + Pool.x_offset - micR);
-    bounce1D(Mic_pos.mic_y, Mic_pos.mic_velocity.y, -Pool_halfH + Pool.y_offset + micR, Pool_halfH + Pool.y_offset - micR);
-    bounce1D(Mic_pos.mic_z, Mic_pos.mic_velocity.z, -Pool_halfD + Pool.z_offset + micR, Pool_halfD + Pool.z_offset - micR);
+    bounce1D(Mic.mic_x, Mic.mic_velocity.x, -Pool_halfW + Pool.x_offset + micR, Pool_halfW + Pool.x_offset - micR);
+    bounce1D(Mic.mic_y, Mic.mic_velocity.y, -Pool_halfH + Pool.y_offset + micR, Pool_halfH + Pool.y_offset - micR);
+    bounce1D(Mic.mic_z, Mic.mic_velocity.z, -Pool_halfD + Pool.z_offset + micR, Pool_halfD + Pool.z_offset - micR);
 
     //odbicia od przeszkody (MIKROFON)
-    bounceObstacleMic(Mic_pos, temp_Obstacle);
+    bounceObstacleMic(Mic, temp_Obstacle);
     
    
     // --- 2) Integracja i odbicia punktów siatki ---
@@ -933,21 +935,21 @@ void renderScene()
 
         //gorny wierzcholek
         node buf;
-        buf.position = glm::vec3(Mic_pos.mic_x, Mic_pos.mic_y + mic_radius, Mic_pos.mic_z);
+        buf.position = glm::vec3(Mic.mic_x, Mic.mic_y + mic_radius, Mic.mic_z);
         mic_nodes.push_back(buf);
 
         //boczne wierzcholki
         for (int i = 1; i <= 5; ++i) {
-            buf.position = glm::vec3(Mic_pos.mic_x + mic_radius * cos(V_ANGLE) * cos(i * H_ANGLE), Mic_pos.mic_y + mic_radius * sin(V_ANGLE), Mic_pos.mic_z + mic_radius * cos(V_ANGLE) * sin(i * H_ANGLE));
+            buf.position = glm::vec3(Mic.mic_x + mic_radius * cos(V_ANGLE) * cos(i * H_ANGLE), Mic.mic_y + mic_radius * sin(V_ANGLE), Mic.mic_z + mic_radius * cos(V_ANGLE) * sin(i * H_ANGLE));
             mic_nodes.push_back(buf);
         }
         for (int i = 6; i <= 10; ++i) {
-            buf.position = glm::vec3(Mic_pos.mic_x + mic_radius * cos(V_ANGLE) * cos((i + 0.5f) * H_ANGLE), Mic_pos.mic_y + -mic_radius * sin(V_ANGLE), Mic_pos.mic_z + mic_radius * cos(V_ANGLE) * sin((i + 0.5f) * H_ANGLE));
+            buf.position = glm::vec3(Mic.mic_x + mic_radius * cos(V_ANGLE) * cos((i + 0.5f) * H_ANGLE), Mic.mic_y + -mic_radius * sin(V_ANGLE), Mic.mic_z + mic_radius * cos(V_ANGLE) * sin((i + 0.5f) * H_ANGLE));
             mic_nodes.push_back(buf);
         }
 
         //dolny wierzcholek
-        buf.position = glm::vec3(Mic_pos.mic_x, Mic_pos.mic_y - mic_radius, Mic_pos.mic_z);
+        buf.position = glm::vec3(Mic.mic_x, Mic.mic_y - mic_radius, Mic.mic_z);
         mic_nodes.push_back(buf);
 
         const int initTris[20][3] = {
@@ -1083,7 +1085,10 @@ void renderScene()
     {
         if (touchesMicrophone(nodes[i].position))
         {
-            std::cout << "ODCZYT:" << "  ENERGIA: " << nodes[i].energy << " CZAS: " << time_passed << std::endl;
+            Mic.energy_reading.push_back(nodes[i].energy);
+            Mic.time_reading.push_back(time_passed);
+            std::cout << "ODCZYT:" << "  ENERGIA: " << Mic.energy_reading.back() << " CZAS: " << Mic.time_reading.back() << std::endl;
+
         }
     }
     //-----USUWANIE DOTKNIETYCH NODES-----
@@ -1175,7 +1180,7 @@ int printOversizedTriangles(float maxArea) {
 
 // === DODAJ gdzieœ nad pruneSlowNodes (np. obok edge_key / normalize_to_radius) ===
 static inline bool touchesMicrophone(const glm::vec3& p) {
-    const glm::vec3 c(Mic_pos.mic_x, Mic_pos.mic_y, Mic_pos.mic_z);
+    const glm::vec3 c(Mic.mic_x, Mic.mic_y, Mic.mic_z);
     const glm::vec3 d = p - c;
     // test sfery: odleg³oœæ^2 <= mic_radius^2
     return glm::dot(d, d) <= (mic_radius * mic_radius); // TO DO: trzeba sprawdzic dobre odleglosci, zeby mikrofon nie wykrywal za duzych kawalkow
@@ -1327,16 +1332,16 @@ void drawIcosahedron(float radius, std::vector<Triangle> triangles) {
 void drawMicrophone()
 {
     //glPushMatrix();
-    //glTranslatef(Mic_pos.mic_x, Mic_pos.mic_y, Mic_pos.mic_z);
+    //glTranslatef(Mic.mic_x, Mic.mic_y, Mic.mic_z);
     // jeœli masz orientacjê: glRotatef(angle_deg, ax.x, ax.y, ax.z);
     // jeœli masz skalê:     glScalef(sx, sy, sz);
-    glm::vec3 actual_position = glm::vec3(Mic_pos.mic_x, Mic_pos.mic_y, Mic_pos.mic_z);
+    glm::vec3 actual_position = glm::vec3(Mic.mic_x, Mic.mic_y, Mic.mic_z);
     // ŒCIANY (pamiêtaj: sk³adniki koloru w [0..1])
     glColor4f(1.0f, 0.4f, 0.8f, 0.5f);
     glBegin(GL_TRIANGLES);
     for (const auto& mic : microphone) {
         for (int j = 0; j < 3; ++j) {
-            const auto& p = mic_nodes[mic.indices[j]].position + (actual_position - Mic_pos.starting_point); // lokalne (wokó³ œrodka)
+            const auto& p = mic_nodes[mic.indices[j]].position + (actual_position - Mic.starting_point); // lokalne (wokó³ œrodka)
             glVertex3f(p.x, p.y, p.z);
         }
     }
@@ -1349,8 +1354,8 @@ void drawMicrophone()
         for (int j = 0; j < 3; ++j) {
             int current = mic.indices[j];
             int next = mic.indices[(j + 1) % 3];
-            const auto& a = mic_nodes[current].position + (actual_position - Mic_pos.starting_point);
-            const auto& b = mic_nodes[next].position + (actual_position - Mic_pos.starting_point);
+            const auto& a = mic_nodes[current].position + (actual_position - Mic.starting_point);
+            const auto& b = mic_nodes[next].position + (actual_position - Mic.starting_point);
             glVertex3f(a.x, a.y, a.z);
             glVertex3f(b.x, b.y, b.z);
         }
@@ -1364,7 +1369,7 @@ void checkMicrophone()
 {
     for (const auto& wav : nodes)
     {
-        if (sqrt(pow((wav.position.x - Mic_pos.mic_x), 2) + pow((wav.position.y - Mic_pos.mic_y), 2) + pow((wav.position.z - Mic_pos.mic_z), 2)) < sqrt(2)*mic_radius)
+        if (sqrt(pow((wav.position.x - Mic.mic_x), 2) + pow((wav.position.y - Mic.mic_y), 2) + pow((wav.position.z - Mic.mic_z), 2)) < sqrt(2)*mic_radius)
         {
             std::cout << "ODCZYT MIKROFONU" << std::endl;
         }
