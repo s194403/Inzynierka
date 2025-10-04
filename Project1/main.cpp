@@ -9,6 +9,7 @@
 #include <vector>
 #include <cmath>
 #include <unordered_map>
+#include <fstream>
 #define M_PI 3.1415
 
 //#include <cstdlib> // wymagane dla exit()
@@ -99,6 +100,7 @@ static int midpoint_index(int i0, int i1,
 }
 
 float mic_radius = 0.2f;
+float time_passed = 0.0f;
 
 void updatePhysics(float dt, struct Cuboid_dimensions Pool, struct Cuboid_dimensions temp_Obstacle)
 {
@@ -106,7 +108,7 @@ void updatePhysics(float dt, struct Cuboid_dimensions Pool, struct Cuboid_dimens
     const float Pool_halfH = 0.5f * Pool.height;
     const float Pool_halfD = 0.5f * Pool.depth;
 
-    const float e = 0.999f;   // wsp. sprê¿ystoœci
+    const float e = 1-0.1*dt;   // wsp. sprê¿ystoœci
     const float eps = 0.001f; // minimalne odsuniêcie od œciany
 
     // Jeœli masz promieñ mikrofonu, ustaw go tu (0.0f gdy brak):
@@ -222,6 +224,10 @@ void updatePhysics(float dt, struct Cuboid_dimensions Pool, struct Cuboid_dimens
         bounceObstacleWave(nodes[i], temp_Obstacle);
 
     }
+
+    //dodaj czas
+    time_passed += dt;
+
 }
 
 float calculateTriangleArea(int a, int b, int c) {
@@ -1071,12 +1077,13 @@ void renderScene()
     Cube.height = 60.0f;
     Cube.depth = 100.0f;*/
     updatePhysics(dt, Cube, Obstacle);
+
     //--NAJPIERW SPRAWDZA CZY MIKROFON DOTYKA I JEST ODCZYT---
     for (size_t i = 0; i < nodes.size(); ++i)
     {
         if (touchesMicrophone(nodes[i].position))
         {
-            std::cout << "ODCZYT" << "  ENERGIA: " << nodes[i].energy << std::endl;
+            std::cout << "ODCZYT:" << "  ENERGIA: " << nodes[i].energy << " CZAS: " << time_passed << std::endl;
         }
     }
     //-----USUWANIE DOTKNIETYCH NODES-----
@@ -1115,10 +1122,11 @@ void renderScene()
     drawCuboidTransparentSorted(Cube);
 
     //PRZESZKODA
+    
     glDisable(GL_DEPTH_TEST);
     glColor4f(0.2f, 0.5f, 0.2f, 0.7f);
     drawCuboidTransparentSorted(Obstacle);
-
+    
 
 }
 
