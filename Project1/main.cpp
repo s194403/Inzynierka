@@ -106,7 +106,7 @@ void updatePhysics(float dt, struct Cuboid_dimensions Pool, struct Cuboid_dimens
     const float Pool_halfH = 0.5f * Pool.height;
     const float Pool_halfD = 0.5f * Pool.depth;
 
-    const float e = 0.8f;   // wsp. sprê¿ystoœci
+    const float e = 0.999f;   // wsp. sprê¿ystoœci
     const float eps = 0.001f; // minimalne odsuniêcie od œciany
 
     // Jeœli masz promieñ mikrofonu, ustaw go tu (0.0f gdy brak):
@@ -236,6 +236,7 @@ int addMidpoint(int a, int b) {
     node midpoint;
     midpoint.position = (nodes[a].position + nodes[b].position) * 0.5f;
     midpoint.velocity = (nodes[a].velocity + nodes[b].velocity) * 0.5f;
+    midpoint.energy = (nodes[a].energy + nodes[b].energy) * 0.5f;
     //midpoint.velocity = (nodes[a].velocity + nodes[b].velocity) * 0.5f;
 
     nodes.push_back(midpoint);
@@ -1012,6 +1013,7 @@ void renderScene()
             node nd;
             nd.position = p;
             nd.velocity = nd.position * 0.2f;
+            nd.energy = 1.0f;
             nodes.push_back(nd);
         }
 
@@ -1074,7 +1076,7 @@ void renderScene()
     {
         if (touchesMicrophone(nodes[i].position))
         {
-            std::cout << "ODCZYT" << std::endl;
+            std::cout << "ODCZYT" << "  ENERGIA: " << nodes[i].energy << std::endl;
         }
     }
     //-----USUWANIE DOTKNIETYCH NODES-----
