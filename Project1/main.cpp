@@ -35,7 +35,7 @@ std::vector<node> mic_nodes;
 
 struct Cuboid_dimensions {
     float width = 0.0f;
-    float height = .0f;
+    float height = 0.0f;
     float depth = 0.0f;
     float x_offset = 0.0f;
     float y_offset = 0.0f;
@@ -47,13 +47,14 @@ Cuboid_dimensions Obstacle;//PRZESZKODA W BASENIE
 
 //MIKROFON
 struct Micophone {
-    float mic_x = 1.0f;
-    float mic_y = 1.0f;
-    float mic_z = 1.0f;
+    float mic_x = 0.7f;
+    float mic_y = 2.0f;
+    float mic_z = -0.6f;
     glm::vec3 starting_point = glm::vec3(mic_x, mic_y, mic_z);
     glm::vec3 mic_velocity = glm::vec3(-1.0f, 0.0f, 0.0f);
     std::vector<float> energy_reading;
     std::vector<float> time_reading;
+    float ile_czasu_czytac = 30; //do usuniecia, testowe
 };
 Micophone Mic;
 
@@ -101,6 +102,8 @@ static int midpoint_index(int i0, int i1,
     return idx;
 }
 
+//WAZNE DANE
+float dt = 0.01;
 float mic_radius = 0.2f;
 float time_passed = 0.0f;
 
@@ -714,6 +717,8 @@ int main()
     if (!glfwInit())
         return -1;
 
+    bool pokazano_dane = false; //testowe, do usuniecia
+
     GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "Camera Scene", NULL, NULL);
     if (!window)
     {
@@ -771,6 +776,33 @@ int main()
         renderScene();
         // Oblicz FPS
         //calculateFPS();
+
+        
+        if (time_passed > Mic.ile_czasu_czytac && !pokazano_dane)
+        {
+            std::vector<float> time;
+            std::vector<float> energy;
+            for (int i = 0; i < Mic.ile_czasu_czytac / dt ; i++)
+            {
+                time.push_back(dt * i);
+                for (int j = 0; j < Mic.time_reading.size(); j++)
+                {
+                    if (abs((dt*i - Mic.time_reading[j])) < dt)
+                    {
+                        energy.push_back(Mic.energy_reading[j]);
+                        std::cout << "ODCZYT =: " << "CZAS: " << time.back() << " ENERGIA: " << energy.back() << std::endl;
+                    }
+                    else
+                    {
+                        energy.push_back(0);
+                    }
+                }
+            }
+            pokazano_dane = true;
+
+        }
+        
+        
 
         glfwSwapBuffers(window);
         glfwPollEvents();
@@ -911,7 +943,7 @@ void drawSphereWithBuffers()
 
     // 2) Obrys (wireframe)
     glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-    glLineWidth(1.0f);                    // mo¿esz podbiæ np. do 2.0
+    glLineWidth(0.2f);                    // mo¿esz podbiæ np. do 2.0
     glColor4f(0.0f, 0.0f, 0.0f, 0.6f);
     glDrawElements(GL_TRIANGLES, gIndexCount, GL_UNSIGNED_INT, (void*)0);
 
@@ -927,7 +959,6 @@ void renderScene()
     //glEnable(GL_BLEND);
     //glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-    float dt = 0.01;
     //static std::vector<Triangle> triangles;
     if (first) {
         nodes.clear();
@@ -1083,11 +1114,11 @@ void renderScene()
     //--NAJPIERW SPRAWDZA CZY MIKROFON DOTYKA I JEST ODCZYT---
     for (size_t i = 0; i < nodes.size(); ++i)
     {
-        if (touchesMicrophone(nodes[i].position))
+        if (touchesMicrophone(nodes[i].position) && time_passed < Mic.ile_czasu_czytac) //odczytuje tylko pierwsze 30 sekund 
         {
             Mic.energy_reading.push_back(nodes[i].energy);
             Mic.time_reading.push_back(time_passed);
-            std::cout << "ODCZYT:" << "  ENERGIA: " << Mic.energy_reading.back() << " CZAS: " << Mic.time_reading.back() << std::endl;
+            //std::cout << "ODCZYT:" << "  ENERGIA: " << Mic.energy_reading.back() << " CZAS: " << Mic.time_reading.back() << std::endl;
 
         }
     }
