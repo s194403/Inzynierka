@@ -10,10 +10,13 @@
 #include <cmath>
 #include <unordered_map>
 #include <fstream>
+#include <string>
+#define DR_WAV_IMPLEMENTATION
+#include <dr_libs-master/dr_wav.h>
 #define M_PI 3.1415
 
 //#include <cstdlib> // wymagane dla exit()
-
+float energia_test = 0.0f;
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void mouse_callback(GLFWwindow* window, double xpos, double ypos);
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
@@ -22,12 +25,18 @@ void renderScene();
 //void drawCuboid(float width, float height, float depth);
 void drawCuboidTransparentSorted(struct Cuboid_dimensions temp_Cube);
 int printOversizedTriangles(float maxArea);
+// Ustawia wêz³y w pozycji Ÿród³a i nadaje im prêdkoœci/kierunki startowe.
+void resetWavefrontFromSource(float energyPerNode);
+
+//Zapis do pliku po symulacji
+void writeEnvelopeWav(const char* path);
 //int removeSlowNodes(float minSpeed);
 
 struct node {
-    glm::vec3 position = glm::vec3(0, 0, 0); // Domyslnie ustawione na (0,0,0)
+    glm::vec3 position = glm::vec3(0, 0, 0);
     glm::vec3 velocity = glm::vec3(0, 0, 0);
-    float energy = 0;
+    float     energy   = 0.0f;
+    uint8_t   bounces  = 0;   // NOWE: roœnie przy odbiciach od œcian/przeszkody
 };
 
 std::vector<node> nodes;
@@ -47,16 +56,140 @@ Cuboid_dimensions Obstacle;//PRZESZKODA W BASENIE
 
 //MIKROFON
 struct Micophone {
-    float mic_x = 0.7f;
-    float mic_y = 2.0f;
-    float mic_z = -0.6f;
+    float mic_x = 1.0f;
+    float mic_y = 1.0f;
+    float mic_z = 1.0f;
     glm::vec3 starting_point = glm::vec3(mic_x, mic_y, mic_z);
-    glm::vec3 mic_velocity = glm::vec3(-1.0f, 0.0f, 0.0f);
+    glm::vec3 mic_velocity = glm::vec3(-0.0f, 0.0f, 0.0f);
     std::vector<float> energy_reading;
     std::vector<float> time_reading;
-    float ile_czasu_czytac = 30; //do usuniecia, testowe
+    float ile_czasu_czytac = 3; //do usuniecia, testowe
 };
 Micophone Mic;
+
+// plik WAV 
+struct Audio5ms {
+    std::vector<float> mono;        // próbki mono w [-1,1]
+    std::vector<float> winMean;     // œrednie z okien 5 ms
+    uint32_t sampleRate = 0;
+    float window_ms = 5.0f;
+
+    bool loadWav(const std::string& path) {
+        drwav wav{};
+        if (!drwav_init_file(&wav, path.c_str(), nullptr)) return false;
+
+        sampleRate = wav.sampleRate;
+        const uint64_t frames = wav.totalPCMFrameCount;
+        const uint32_t ch = wav.channels;
+
+        std::vector<float> interleaved(frames * ch);
+        const uint64_t rd = drwav_read_pcm_frames_f32(&wav, frames, interleaved.data());
+        drwav_uninit(&wav);
+        if (rd == 0) return false;
+
+        // przejscie do mono
+        mono.resize(rd);
+        if (ch == 1) {
+            std::copy(interleaved.begin(), interleaved.begin() + rd, mono.begin());
+        }
+        else {
+            for (uint64_t i = 0; i < rd; ++i) {
+                double s = 0.0;
+                for (uint32_t c = 0; c < ch; ++c) s += interleaved[i * ch + c];
+                mono[i] = float(s / double(ch));
+            }
+        }
+        build5msMeans();
+        return true;
+    }
+
+    void build5msMeans() {
+        const size_t winN = (size_t)std::max(1.0, std::round(sampleRate * (window_ms / 1000.0)));
+        winMean.clear();
+        winMean.reserve((mono.size() + winN - 1) / winN);
+        for (size_t i = 0; i < mono.size(); i += winN) {
+            size_t end = std::min(mono.size(), i + winN);
+            double sum = 0.0;
+            for (size_t j = i; j < end; ++j) {
+                sum += mono[j];               // czysta œrednia wartoœci próbek
+            }
+            winMean.push_back(float(sum / double(end - i)));
+        }
+    }
+
+    // Œrednia okna odpowiadaj¹cego czasowi t [s]
+    float getAtTime(double t_sec) const {
+        if (winMean.empty()) return 0.0f;
+        const double idx = (t_sec * 1000.0) / double(window_ms);
+        size_t k = (size_t)std::floor(idx);
+        if (k >= winMean.size()) return 0.0f;  // poza nagraniem
+        return winMean[k];
+    }
+};
+
+static Audio5ms gAudio;
+
+
+static size_t gWinIdx = 0;          // który 5 ms segment aktualnie nadajemy
+static float  gWinEnergy = 0.0f;    // energia przypisywana nowo "wypuszczanej" fali w tym oknie
+static float  gStopRatio = 0.05f;   // "znacz¹cy spadek" = 5% energii pocz¹tkowej (dopasuj)
+
+struct RecState {
+    std::vector<float> envelope;    // 1 próbka na okno 5 ms (200 Hz) – suma energii dojœæ
+    float accumAll = 0.0f;          // suma energii, które dotar³y do mikrofonu w bie¿¹cym oknie
+    float accumDir = 0.0f;          // (opcjonalnie) suma dla bez-odbiciowych
+    float accumRef = 0.0f;          // (opcjonalnie) suma dla odbitych
+    bool  firstArrivalCaptured = false; // na wypadek gdybyœ chcia³ zareagowaæ na "pierwsze dojœcie"
+} gRec;
+
+
+static bool gAllInputConsumed = false;  // skoñczy³y siê okna 5 ms z oryginalnego WAV
+static bool gWavFlushed = false;  // czy ju¿ zapisaliœmy wynik
+
+static inline bool captureReadyToWrite() {
+    // gotowi do zapisu, gdy nie ma ju¿ wejœcia i nic nie „leci” w scenie
+    return gAllInputConsumed && nodes.empty();
+}
+
+bool first = true;
+bool doKill = false;
+
+void writeEnvelopeWav(const char* path)
+{
+    if (gRec.envelope.empty()) return;
+
+    // 1 próbka na 5 ms => 200 Hz
+    const uint32_t outSR = (uint32_t)std::lround(1000.0 / gAudio.window_ms);
+
+    drwav_data_format fmt{};
+    fmt.container = drwav_container_riff;
+    fmt.format = DR_WAVE_FORMAT_IEEE_FLOAT;
+    fmt.channels = 1;
+    fmt.sampleRate = outSR;
+    fmt.bitsPerSample = 32;
+
+    drwav w;
+    if (!drwav_init_file_write(&w, path, &fmt, nullptr)) {
+        std::cerr << "Nie mogê otworzyæ do zapisu: " << path << "\n";
+        return;
+    }
+    drwav_write_pcm_frames(&w, gRec.envelope.size(), gRec.envelope.data());
+    drwav_uninit(&w);
+}
+
+static bool beginNextWindow() {
+    if (gWinIdx >= gAudio.winMean.size()) {
+        return false; // nic wiêcej do nadania
+    }
+    gWinEnergy = gAudio.winMean[gWinIdx++];
+    gRec.accumAll = gRec.accumDir = gRec.accumRef = 0.0f;
+    gRec.firstArrivalCaptured = false;
+
+    //Wypuszczanie nowej fali
+    //resetWavefrontFromSource(gWinEnergy);
+    first = true;
+    return true;
+}
 
 
 struct Triangle {
@@ -65,9 +198,7 @@ struct Triangle {
 std::vector<Triangle> triangles;
 std::vector<Triangle> microphone;
 
-void drawIcosahedron(float radius, std::vector<Triangle>);
 void drawMicrophone();
-void checkMicrophone();
 int pruneSlowNodes(float minSpeed);
 
 static inline bool touchesMicrophone(const glm::vec3& p);
@@ -113,22 +244,26 @@ void updatePhysics(float dt, struct Cuboid_dimensions Pool, struct Cuboid_dimens
     const float Pool_halfH = 0.5f * Pool.height;
     const float Pool_halfD = 0.5f * Pool.depth;
 
-    const float e = 1-0.1*dt;   // wsp. sprê¿ystoœci
+    const float e = 0.8;   // wsp. sprê¿ystoœci
     const float eps = 0.001f; // minimalne odsuniêcie od œciany
 
-    // Jeœli masz promieñ mikrofonu, ustaw go tu (0.0f gdy brak):
-    const float micR = mic_radius; // albo 0.0f, jeœli nie masz pola radius
+    const float micR = mic_radius;
 
     // Pomocnik do odbicia w 1D (szybki, inline'owalny)
-    auto bounce1D = [&](float& pos, float& vel, float minb, float maxb) 
-    {
+    auto bounce1D = [&](float& pos, float& vel, float minb, float maxb) -> bool
+        {
             if (pos < minb) {
-                vel *= -1;     // skieruj „do œrodka”
+                pos = minb + eps;    // wyci¹gnij z penetracji
+                vel = -vel * e;      // odbij (uwzglêdnij stratê)
+                return true;
             }
             else if (pos > maxb) {
-                vel *= -1;    // skieruj „do œrodka”
+                pos = maxb - eps;
+                vel = -vel * e;
+                return true;
             }
-    };
+            return false;
+        };
 
     auto bounceObstacleMic = [&](struct Micophone& temp_Mic,  struct Cuboid_dimensions temp_Obstacle)
     {
@@ -206,7 +341,7 @@ void updatePhysics(float dt, struct Cuboid_dimensions Pool, struct Cuboid_dimens
     //odbicia od przeszkody (MIKROFON)
     bounceObstacleMic(Mic, temp_Obstacle);
     
-   
+    //doKill = (glfwGetTime() >= 8.0);
     // --- 2) Integracja i odbicia punktów siatki ---
 #pragma omp parallel for schedule(static)
     for (int i = 0; i < (int)nodes.size(); ++i) 
@@ -214,22 +349,34 @@ void updatePhysics(float dt, struct Cuboid_dimensions Pool, struct Cuboid_dimens
         auto& p = nodes[i].position;
         auto& v = nodes[i].velocity;
 
-        nodes[i].energy *= e;
+        if (doKill)
+        {
+            nodes[i].velocity = glm::vec3(0, 0, 0);
+        }
+        //nodes[i].energy *= e;
+        energia_test = nodes[i].energy;
 
-        // Integracja 
+        // nowe pozycje
         p += v * dt;
 
         // Odbicia w XYZ
-        bounce1D(p.x, v.x, -Pool_halfW + Pool.x_offset, Pool_halfW + Pool.x_offset);
-        bounce1D(p.y, v.y, -Pool_halfH + Pool.y_offset, Pool_halfH + Pool.y_offset);
-        bounce1D(p.z, v.z, -Pool_halfD + Pool.z_offset, Pool_halfD + Pool.z_offset);
+        // --- w pêtli po node'ach ---
+        bool bouncedAny = false;
+
+        bouncedAny |= bounce1D(p.x, v.x, -Pool_halfW + Pool.x_offset, Pool_halfW + Pool.x_offset);
+        bouncedAny |= bounce1D(p.y, v.y, -Pool_halfH + Pool.y_offset, Pool_halfH + Pool.y_offset);
+        bouncedAny |= bounce1D(p.z, v.z, -Pool_halfD + Pool.z_offset, Pool_halfD + Pool.z_offset);
+
+        if (bouncedAny) {
+            nodes[i].bounces++;      // +1 za "jakiekolwiek" odbicie w tym kroku
+        }
 
         //odbicia od przeszkody (FALA)
         //--------MOZNA ZAKOMENTOWAC--------
         bounceObstacleWave(nodes[i], temp_Obstacle);
 
     }
-
+    if (doKill) doKill = false;
     //dodaj czas
     time_passed += dt;
 
@@ -282,161 +429,14 @@ static int midpoint_index_nodes_cached(int i0, int i1) {
 static int midpoint_index_nodes(int i0, int i1,
     std::unordered_map<uint64_t, int>& cache)
 {
-    uint64_t key = edge_key(i0, i1);     // edge_key ju¿ masz w pliku
+    uint64_t key = edge_key(i0, i1);
     auto it = cache.find(key);
     if (it != cache.end()) return it->second;
 
-    int idx = addMidpoint(i0, i1); // œrednia pozycji i prêdkoœci — jak u Ciebie
+    int idx = addMidpoint(i0, i1); // œrednia pozycji i prêdkoœci
     cache.emplace(key, idx);
     return idx;
 }
-
-void refineIcosahedron(std::vector<node>& nodes,
-    float maxArea)
-{
-    std::vector<Triangle> newTriangles;
-    newTriangles.reserve(triangles.size() * 4);
-
-    // cache midpointów na czas ca³ej iteracji podzia³u
-    std::unordered_map<uint64_t, int> midCache;
-    midCache.reserve(triangles.size() * 3);
-
-    const float cuboidHalfWidth = Cube.width * 0.5f;
-    const float cuboidHalfHeight = Cube.height * 0.5f;
-    const float cuboidHalfDepth = Cube.width * 0.5f;
-    const float safetyMargin = 0.2f;
-
-    // Porównujemy bez sqrt: |cross|^2 > (2*maxArea)^2
-    const float area2_threshold = 4.0f * maxArea * maxArea;
-
-    for (const auto& tri : triangles) {
-        const int a = tri.indices[0];
-        const int b = tri.indices[1];
-        const int c = tri.indices[2];
-
-        // Lokalnie trzymaj pozycje (mniej dostêpów do pamiêci)
-        const glm::vec3& pa = nodes[a].position;
-        const glm::vec3& pb = nodes[b].position;
-        const glm::vec3& pc = nodes[c].position;
-
-        // 1) Tanie sprawdzenie nearWall — szybciej od razu odpuœciæ
-        const bool nearWall =
-            (std::fabs(pa.x) > cuboidHalfWidth - safetyMargin) ||
-            (std::fabs(pa.y) > cuboidHalfHeight - safetyMargin) ||
-            (std::fabs(pa.z) > cuboidHalfDepth - safetyMargin) ||
-            (std::fabs(pb.x) > cuboidHalfWidth - safetyMargin) ||
-            (std::fabs(pb.y) > cuboidHalfHeight - safetyMargin) ||
-            (std::fabs(pb.z) > cuboidHalfDepth - safetyMargin) ||
-            (std::fabs(pc.x) > cuboidHalfWidth - safetyMargin) ||
-            (std::fabs(pc.y) > cuboidHalfHeight - safetyMargin) ||
-            (std::fabs(pc.z) > cuboidHalfDepth - safetyMargin);
-
-        bool shouldSplit = false;
-        if (!nearWall) {
-            // 2) Licz „pole” bez sqrt: |cross|^2 vs threshold
-            const glm::vec3 ab = pb - pa;
-            const glm::vec3 ac = pc - pa;
-            const glm::vec3 cr = glm::cross(ab, ac);
-            const float     cr2 = glm::dot(cr, cr);
-            shouldSplit = (cr2 > area2_threshold);
-        }
-
-        if (shouldSplit) {
-            // 3) Midpointy z cache — brak duplikatów przy krawêdziach wspó³dzielonych
-            const int ab_i = midpoint_index_nodes(a, b, midCache);
-            const int bc_i = midpoint_index_nodes(b, c, midCache);
-            const int ca_i = midpoint_index_nodes(c, a, midCache);
-
-            newTriangles.push_back({ {a,  ab_i, ca_i} });
-            newTriangles.push_back({ {b,  bc_i, ab_i} });
-            newTriangles.push_back({ {c,  ca_i, bc_i} });
-            newTriangles.push_back({ {ab_i, bc_i, ca_i} });
-        }
-        else {
-            newTriangles.push_back(tri);
-        }
-    }
-
-    triangles.swap(newTriangles);
-}
-
-// ==== NOWA WERSJA: rafinowanie bud¿etowe ====
-bool refineIcosahedron_chunked(float maxArea,
-    size_t triBudget /* ile trójk¹tów obrabiamy na wywo³anie */)
-{
-    if (triangles.empty() || triBudget == 0) return false;
-
-    // Jeœli od ostatniego razu siatka zosta³a zresetowana – wyzeruj stan
-    if (gRefineCursor > triangles.size()) {
-        gRefineCursor = 0;
-        gEdgeMidCache.clear();
-    }
-
-    // Sta³e i próg bez sqrt: |cross|^2 > (2*maxArea)^2
-    const float cuboidHalfWidth = Cube.width * 0.5f;
-    const float cuboidHalfHeight = Cube.height * 0.5f;
-    const float cuboidHalfDepth = Cube.depth * 0.5f;
-    const float safetyMargin = 0.2f;
-    const float area2_threshold = 4.0f * maxArea * maxArea;
-
-    // Pracujemy tylko na partii trójk¹tów, które ISTNIA£Y na wejœciu
-    const size_t size0 = triangles.size();
-    size_t start = (gRefineCursor < size0 ? gRefineCursor : 0);
-    size_t end = std::min(start + triBudget, size0);
-
-    bool changed = false;
-
-    for (size_t i = start; i < end; ++i) {
-        // UWAGA: nie trzymaj referencji do triangles[i] — bêdziemy push_back’owaæ.
-        //Triangle t = triangles[i];
-        int a = triangles[i].indices[0], b = triangles[i].indices[1], c = triangles[i].indices[2]; // tutaj zamiast triangles[i] bylo t.
-
-        const glm::vec3& pa = nodes[a].position;
-        const glm::vec3& pb = nodes[b].position;
-        const glm::vec3& pc = nodes[c].position;
-
-        // Tanie sprawdzenie „nearWall” — jeœli blisko œciany, nie dzielimy
-        const bool nearWall =
-            (std::fabs(pa.x) > cuboidHalfWidth - safetyMargin) ||
-            (std::fabs(pa.y) > cuboidHalfHeight - safetyMargin) ||
-            (std::fabs(pa.z) > cuboidHalfDepth - safetyMargin) ||
-            (std::fabs(pb.x) > cuboidHalfWidth - safetyMargin) ||
-            (std::fabs(pb.y) > cuboidHalfHeight - safetyMargin) ||
-            (std::fabs(pb.z) > cuboidHalfDepth - safetyMargin) ||
-            (std::fabs(pc.x) > cuboidHalfWidth - safetyMargin) ||
-            (std::fabs(pc.y) > cuboidHalfHeight - safetyMargin) ||
-            (std::fabs(pc.z) > cuboidHalfDepth - safetyMargin);
-
-        if (!nearWall) {
-            // Pole bez sqrt: |(pb-pa) x (pc-pa)|^2
-            const glm::vec3 ab = pb - pa;
-            const glm::vec3 ac = pc - pa;
-            const glm::vec3 cr = glm::cross(ab, ac);
-            const float     cr2 = glm::dot(cr, cr);
-
-            if (cr2 > area2_threshold) {
-                // Zast¹p trójk¹t i do³ó¿ 3 nowe — in-place, bez kopiowania ca³ej tablicy
-                const int ab_i = midpoint_index_nodes_cached(a, b);
-                const int bc_i = midpoint_index_nodes_cached(b, c);
-                const int ca_i = midpoint_index_nodes_cached(c, a);
-
-                triangles[i] = { { a,  ab_i, ca_i } };              // zamiana bie¿¹cego
-                triangles.push_back({ { b,  bc_i, ab_i } });        // 3 nowe
-                triangles.push_back({ { c,  ca_i, bc_i } });
-                triangles.push_back({ { ab_i, bc_i, ca_i } });
-
-                changed = true;
-            }
-        }
-    }
-
-    // Przesuñ kursor; po dojœciu do koñca partii – owiñ na pocz¹tek
-    gRefineCursor = end;
-    if (gRefineCursor >= size0) gRefineCursor = 0;
-
-    return changed;
-}
-
 // ====== MULTI-THREAD CHUNKED REFINEMENT ======
 bool refineIcosahedron_chunked_mt(float maxArea,
     size_t triBudget,          // ile trójk¹tów obrabiamy w tej klatce
@@ -451,10 +451,10 @@ bool refineIcosahedron_chunked_mt(float maxArea,
         gEdgeMidCache.clear();
     }
 
-    // próg bez sqrt: |cross|^2 > (2*maxArea)^2
+    // próg bez sqrt: |cross|^2 > (2*maxArea)^2 zamiast porownywac pola porownywamy kwadraty 
     const float area2_threshold = 4.0f * maxArea * maxArea;
 
-    // sta³e kolizyjne (jak u Ciebie)
+    // sta³e kolizyjne
     const float cuboidHalfWidth = Cube.width * 0.5f;
     const float cuboidHalfHeight = Cube.height * 0.5f;
     const float cuboidHalfDepth = Cube.depth * 0.5f;
@@ -469,7 +469,7 @@ bool refineIcosahedron_chunked_mt(float maxArea,
 
     threadCount = std::min<int>(threadCount, (int)N);
 
-    // --- FAZA 1: RÓWNOLEGLE zbierz „do podzia³u” + krawêdzie (TLS) ---
+    // --- FAZA 1: RÓWNOLEGLE zbierz „do podzia³u” + krawêdzie ---
     std::vector<std::vector<int>>   tl_split(threadCount);
     std::vector<std::vector<Edge>>  tl_edges(threadCount);
 
@@ -564,14 +564,12 @@ bool refineIcosahedron_chunked_mt(float maxArea,
         if (u > v) std::swap(u, v);
         const uint64_t key = edge_key(u, v);
         auto it = gEdgeMidCache.find(key);
-        // w debugzie warto asercjê:
-        // assert(it != gEdgeMidCache.end());
         return it->second;
         };
 
     // --- FAZA 3: RÓWNOLEGLE zbuduj nowe trójk¹ty do buforów per-w¹tek ---
-    std::vector<std::vector<std::pair<int, Triangle>>> tl_replace(threadCount); // (index, tri)
-    std::vector<std::vector<Triangle>>                tl_append(threadCount);  // 3 szt./split
+    std::vector<std::vector<std::pair<int, Triangle>>> tl_replace(threadCount);
+    std::vector<std::vector<Triangle>>                tl_append(threadCount);  
 
     auto worker_build = [&](int tid) {
         size_t M = splitIdx.size();
@@ -645,7 +643,6 @@ float pitch = 0.0f;
 float fov = 45.0f;
 float deltaTime = 0.0f;
 float lastFrame = 0.0f;
-bool first = true;
 
 //do przyspieszenia VBO
 static GLuint gVBO = 0;
@@ -657,7 +654,7 @@ static size_t gLastV = 0, gLastI = 0;    // do detekcji zmian topologii
 //proba
 // VBO/IBO/VAO
 static GLuint gVAO = 0;
-static GLuint gVboPos = 0;      // tylko pozycje (glm::vec3)
+static GLuint gVboPos = 0;      
 static GLuint gIbo = 0;
 
 static GLsizeiptr gPosBytes = 0;
@@ -727,6 +724,14 @@ int main()
     }
     glfwMakeContextCurrent(window);
 
+    // Wczytaj plik WAV (podmieñ œcie¿kê na swoj¹)
+    if (!gAudio.loadWav("C:\\Users\\Zakol\\Desktop\\Inzynierka\\Project1\\sine_440Hz.wav")) {
+        std::cerr << "Nie mogê wczytaæ input.wav\n";
+        // opcjonalnie: return -1;
+    }
+    beginNextWindow(); // uruchamiamy pierwsze okno 5 ms
+    gAudio.window_ms = 5.0f;   // trzymamy 5 ms
+
     // to pod tym dodane do VBO 
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
         std::cerr << "GLAD fail\n"; return -1;
@@ -748,9 +753,9 @@ int main()
     Obstacle.width = 0.3f;
     Obstacle.height = 0.7f;
     Obstacle.depth = 0.7f;
-    Obstacle.x_offset = -3.0f;
+    Obstacle.x_offset = 15.0f;
     Obstacle.y_offset = 1.0f;
-    Obstacle.z_offset = 1.0f;
+    Obstacle.z_offset = 0.0f;
 
 
     while (!glfwWindowShouldClose(window))
@@ -882,7 +887,7 @@ void buildSphereBuffers(bool dynamic = true) {
 
     glBufferData(GL_ARRAY_BUFFER, vbSize, nodes.empty() ? nullptr : (const void*)nodes.data(), usage);
 
-    // Atrybut pozycji: 3 floaty, stride = sizeof(node), offset = offsetof(node, position)
+
     glEnableClientState(GL_VERTEX_ARRAY); // compatibility profile
     glVertexPointer(3, GL_FLOAT, (GLsizei)sizeof(node), (const void*)offsetof(node, position));
 
@@ -961,6 +966,8 @@ void renderScene()
 
     //static std::vector<Triangle> triangles;
     if (first) {
+        doKill = false;
+        glfwSetTime(0.0);  // wyzeruj stoper
         nodes.clear();
         triangles.clear();
 
@@ -1048,11 +1055,12 @@ void renderScene()
         }
 
         nodes.reserve(verts.size());
+        const float audioE = gAudio.getAtTime((gWinIdx-1) * 0.005f);
         for (const auto& p : verts) {
             node nd;
             nd.position = p;
-            nd.velocity = nd.position * 0.2f;
-            nd.energy = 1.0f;
+            nd.velocity = nd.position * 5.0f;
+            nd.energy = audioE;
             nodes.push_back(nd);
         }
 
@@ -1068,7 +1076,7 @@ void renderScene()
 
     //buildSphereBuffers(nodes, triangles, /*dynamic=*/true); //bledne bo caly czas sie wykonywalo
 
-    //std::cout << "Ilosc punktow:" << nodes.size() << std::endl;
+    std::cout << "Ilosc punktow:" << nodes.size() << std::endl;
     //if (nodes.size() >= 10000) exit(0);
     //std::cout << "Ilosc scian:" << triangles.size() << std::endl;
     /*for (int i = 0; i < nodes.size(); i++)
@@ -1097,10 +1105,6 @@ void renderScene()
         if (refineIcosahedron_chunked_mt(0.05f, budget, threads)) {
             gMeshDirty = true; // przebuduj bufory tylko gdy zasz³a zmiana
         }
-
-        /*refineIcosahedron(nodes, 0.05f);
-        gMeshDirty = true;
-        */
     }
     frameCount++;
 
@@ -1111,19 +1115,20 @@ void renderScene()
     Cube.depth = 100.0f;*/
     updatePhysics(dt, Cube, Obstacle);
 
-    //--NAJPIERW SPRAWDZA CZY MIKROFON DOTYKA I JEST ODCZYT---
-    for (size_t i = 0; i < nodes.size(); ++i)
-    {
-        if (touchesMicrophone(nodes[i].position) && time_passed < Mic.ile_czasu_czytac) //odczytuje tylko pierwsze 30 sekund 
-        {
-            Mic.energy_reading.push_back(nodes[i].energy);
-            Mic.time_reading.push_back(time_passed);
-            //std::cout << "ODCZYT:" << "  ENERGIA: " << Mic.energy_reading.back() << " CZAS: " << Mic.time_reading.back() << std::endl;
+    //--NAJPIERW SPRAWDZA CZY MIKROFON DOTYKA I JEST ODCZYT--- // TO DO: przeniesc to do pruneSlowNodes, bo po co dwa razy sprawdzac to samo
+    //for (size_t i = 0; i < nodes.size(); ++i)
+    //{
+    //    if (touchesMicrophone(nodes[i].position) && time_passed < Mic.ile_czasu_czytac) //odczytuje tylko pierwsze 30 sekund 
+    //    {
+    //        Mic.energy_reading.push_back(nodes[i].energy);
+    //        Mic.time_reading.push_back(time_passed);
+    //        //std::cout << "ODCZYT:" << "  ENERGIA: " << Mic.energy_reading.back() << " CZAS: " << Mic.time_reading.back() << std::endl;
 
-        }
-    }
+    //    }
+    //}
+
     //-----USUWANIE DOTKNIETYCH NODES-----
-    pruneSlowNodes(/*minSpeed=*/0.0f); // m/s (dobierz)
+    pruneSlowNodes(/*minSpeed=*/0.1f); // m/s (dobierz)
     //removeSlowNodes(/*minSpeed=*/4.00f);
 
     // 1) odbuduj bufory tylko gdy trzeba
@@ -1147,23 +1152,17 @@ void renderScene()
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glDisable(GL_DEPTH_TEST);
     drawSphereWithBuffers();
-    //drawIcosahedron(radius, triangles);
-    drawMicrophone();
-    //checkMicrophone();
-    
-    glEnable(GL_DEPTH_TEST);
-    // Basen
-    glColor4f(0.0f, 0.0f, 1.0f, 0.1f);
-    //drawCuboid(Cube.width, Cube.height, Cube.depth);
-    drawCuboidTransparentSorted(Cube);
 
+    glEnable(GL_DEPTH_TEST);
+    drawMicrophone();  
     //PRZESZKODA
-    
-    glDisable(GL_DEPTH_TEST);
+
     glColor4f(0.2f, 0.5f, 0.2f, 0.7f);
     drawCuboidTransparentSorted(Obstacle);
-    
-
+    //glEnable(GL_DEPTH_TEST);
+    // Basen
+    glColor4f(0.0f, 0.0f, 1.0f, 0.1f);
+    drawCuboidTransparentSorted(Cube);  
 }
 
 int printOversizedTriangles(float maxArea) {
@@ -1209,7 +1208,6 @@ int printOversizedTriangles(float maxArea) {
     return count;
 }
 
-// === DODAJ gdzieœ nad pruneSlowNodes (np. obok edge_key / normalize_to_radius) ===
 static inline bool touchesMicrophone(const glm::vec3& p) {
     const glm::vec3 c(Mic.mic_x, Mic.mic_y, Mic.mic_z);
     const glm::vec3 d = p - c;
@@ -1219,34 +1217,53 @@ static inline bool touchesMicrophone(const glm::vec3& p) {
 
 // Usuwa wêz³y o |velocity| < minSpeed i remapuje trójk¹ty.
 // Zwraca ile wêz³ów usuniêto.
-// === PODMIEÑ ca³¹ funkcjê pruneSlowNodes na tê wersjê ===
-int pruneSlowNodes(float minSpeed) {
-    const float thr2 = minSpeed * minSpeed;
+int pruneSlowNodes(float minEnergy)
+{
+    if (nodes.empty()) return 0;
+
+    const float thr2 = minEnergy;
     const size_t N = nodes.size();
 
-    std::vector<int> remap(N, -1);
+    std::vector<int>  remap(N, -1);
     std::vector<node> kept;
     kept.reserve(N);
 
+    double sumEnergy = 0.0;        // do oceny wygaszenia
+    bool only_one_read = false;
     for (size_t i = 0; i < N; ++i) {
-        const glm::vec3& v = nodes[i].velocity;
+        //const float E = nodes[i].energy;
+        const glm::vec3 v = nodes[i].velocity;
         const float v2 = glm::dot(v, v);
 
-        // Zachowaj node TYLKO jeœli jest szybki i nie dotyka mikrofonu
-        const bool fastEnough = (v2 >= thr2);
+        const bool velocityEnough = (v2 >= thr2);
         const bool hitMic = touchesMicrophone(nodes[i].position);
 
-        if (fastEnough && !hitMic) {
+        if (hitMic && !only_one_read) {
+            // Zarejestruj "odebranie" w tym oknie
+            gRec.accumAll += nodes[i].energy;
+            if (nodes[i].bounces == 0) gRec.accumDir += nodes[i].energy;
+            else                       gRec.accumRef += nodes[i].energy;
+
+            // "Pierwszy który dojdzie" – najpewniej bez odbiæ:
+            if (!gRec.firstArrivalCaptured && nodes[i].bounces == 0) {
+                gRec.firstArrivalCaptured = true;
+                // (opcjonalnie) mo¿esz tu zapisaæ timestamp/pozycjê
+            }
+            doKill = true;
+            only_one_read = true;
+            // Ten node "przechwycony" przez mikrofon — nie zachowujemy go
+            continue;
+        }
+
+        if (velocityEnough) {
             remap[i] = (int)kept.size();
             kept.push_back(nodes[i]);
+            sumEnergy += nodes[i].energy;
         }
+        // wolne wêz³y wycinamy – przyspiesza symulacjê
     }
 
-    if (kept.size() == N) {
-        return 0; // nic nie usuniêto
-    }
-
-    // Przebuduj trójk¹ty – zostaw tylko te, które w ca³oœci przetrwa³y
+    // Triangles: zostaw tylko te, które przetrwa³y
     std::vector<Triangle> newTris;
     newTris.reserve(triangles.size());
     for (const auto& t : triangles) {
@@ -1261,14 +1278,44 @@ int pruneSlowNodes(float minSpeed) {
     nodes.swap(kept);
     triangles.swap(newTris);
 
-    // uniewa¿nij stan rafinowania „chunked”
+    // Uniewa¿nij cache/rafineriê i poproœ o rebuild VBO
     gRefineCursor = 0;
     gEdgeMidCache.clear();
-
-    // poproœ o odbudowê VBO
     gMeshDirty = true;
 
+    // zgasniecie fali
+    // Porównujemy œredni¹ energiê pozosta³ych nodów do energii startowej okna.
+    // Jeœli spad³a poni¿ej progu albo nic nie zosta³o — koñczymy okno.
+    const double meanEnergy = nodes.empty() ? 0.0 : (sumEnergy / double(nodes.size()));
+    const bool windowDied = (nodes.empty() || meanEnergy < (double)gWinEnergy * (double)gStopRatio);
+
+    if (windowDied) {
+        // Odk³adamy 1 próbkê wyjœciow¹ (200 Hz) = to, co "z³apa³" mikrofon w tym oknie
+        gRec.envelope.push_back(gRec.accumAll);
+
+        // Czy mamy kolejne okno do nadania?
+        if (!beginNextWindow()) {
+            // Koniec ca³ego strumienia — nic wiêcej nie robimy
+            writeEnvelopeWav("mic_out_200Hz.wav");
+            // (tu mo¿esz ustawiæ jakiœ globalny "simFinished")
+        }
+    }
+
     return (int)(N - nodes.size());
+}
+
+void resetWavefrontFromSource(float energyPerNode)
+{
+    nodes.clear();
+    triangles.clear();
+    node s;
+    s.position = glm::vec3(0, 0, 0);     //pozycja Ÿród³a
+    s.velocity = glm::normalize(glm::vec3(1, 0, 0)); // kierunek & prêdkoœæ
+    s.energy = energyPerNode;
+    s.bounces = 0;
+    nodes.push_back(s);
+    // odbudowa siatki
+    gMeshDirty = true;
 }
 
 void drawCuboidTransparentSorted(struct Cuboid_dimensions temp_Cube) {
@@ -1333,41 +1380,12 @@ void drawCuboidTransparentSorted(struct Cuboid_dimensions temp_Cube) {
 }
 
 
-void drawIcosahedron(float radius, std::vector<Triangle> triangles) {
-    // Rysowanie scian (pomarañczowe)
-    glColor4f(1.0f, 0.5f, 0.0f, 0.5f); //te 0.5f na koncu nie ma znaczenia jak blend wylaczony
-    glBegin(GL_TRIANGLES);
-    for (const auto& tri : triangles) {
-        for (int j = 0; j < 3; ++j) {
-            glVertex3f(nodes[tri.indices[j]].position.x,
-                nodes[tri.indices[j]].position.y,
-                nodes[tri.indices[j]].position.z);
-        }
-    }
-    glEnd();
-
-    // Rysowanie krawedzi (czarne)
-    glColor4f(0.0f, 0.0f, 0.0f, 0.5f);
-    glBegin(GL_LINES);
-    for (const auto& tri : triangles) {
-        for (int j = 0; j < 3; ++j) {
-            int current = tri.indices[j];
-            int next = tri.indices[(j + 1) % 3];
-            glVertex3f(nodes[current].position.x, nodes[current].position.y, nodes[current].position.z);
-            glVertex3f(nodes[next].position.x, nodes[next].position.y, nodes[next].position.z);
-        }
-    }
-    glEnd();
-}
-
 void drawMicrophone()
 {
     //glPushMatrix();
     //glTranslatef(Mic.mic_x, Mic.mic_y, Mic.mic_z);
-    // jeœli masz orientacjê: glRotatef(angle_deg, ax.x, ax.y, ax.z);
-    // jeœli masz skalê:     glScalef(sx, sy, sz);
     glm::vec3 actual_position = glm::vec3(Mic.mic_x, Mic.mic_y, Mic.mic_z);
-    // ŒCIANY (pamiêtaj: sk³adniki koloru w [0..1])
+    // ŒCIANY
     glColor4f(1.0f, 0.4f, 0.8f, 0.5f);
     glBegin(GL_TRIANGLES);
     for (const auto& mic : microphone) {
@@ -1396,13 +1414,3 @@ void drawMicrophone()
     //glPopMatrix();
 }
 
-void checkMicrophone()
-{
-    for (const auto& wav : nodes)
-    {
-        if (sqrt(pow((wav.position.x - Mic.mic_x), 2) + pow((wav.position.y - Mic.mic_y), 2) + pow((wav.position.z - Mic.mic_z), 2)) < sqrt(2)*mic_radius)
-        {
-            std::cout << "ODCZYT MIKROFONU" << std::endl;
-        }
-    }
-}
