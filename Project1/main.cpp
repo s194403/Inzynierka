@@ -73,7 +73,7 @@ struct Audio5ms {
     std::vector<float> mono;        // próbki mono w [-1,1]
     std::vector<float> winMean;     // œrednie z okien 5 ms
     uint32_t sampleRate = 0;
-    float window_ms = 5.0f;
+    float window_ms = 1.0f;         //czas na jedno okno
 
     bool loadWav(const std::string& path) {
         drwav wav{};
@@ -126,6 +126,7 @@ struct Audio5ms {
         if (k >= winMean.size()) return 0.0f;  // poza nagraniem
         return winMean[k];
     }
+
 };
 
 static Audio5ms gAudio;
@@ -731,7 +732,7 @@ int main()
         // opcjonalnie: return -1;
     }
     //beginNextWindow(); // uruchamiamy pierwsze okno 5 ms
-    gAudio.window_ms = 5.0f;   // trzymamy 5 ms
+    //gAudio.window_ms = 1.0f;   // trzymamy 5 ms
 
     // to pod tym dodane do VBO 
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
@@ -966,7 +967,8 @@ void renderScene()
     //glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
     //static std::vector<Triangle> triangles;
-    if (first) {
+    if (first) 
+    {
         doKill = false;
         //glfwSetTime(0.0);  // wyzeruj stoper
         nodes.clear();
@@ -1056,11 +1058,11 @@ void renderScene()
         }
 
         nodes.reserve(verts.size());
-        const float audioE = gAudio.getAtTime((gWinIdx) * 50.0f / 10000.0f);
+        const float audioE = gAudio.getAtTime((gWinIdx) * gAudio.window_ms  / 1000.0f);
         for (const auto& p : verts) {
             node nd;
             nd.position = p;
-            nd.velocity = nd.position * 50.0f;
+            nd.velocity = nd.position * gAudio.window_ms * 10.0f;
             nd.energy = audioE;
             nodes.push_back(nd);
         }
