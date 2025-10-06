@@ -57,11 +57,11 @@ Cuboid_dimensions Obstacle;//PRZESZKODA W BASENIE
 
 //MIKROFON
 struct Micophone {
-    float mic_x = 1.0f;
-    float mic_y = 1.0f;
-    float mic_z = 1.0f;
+    float mic_x = 2.0f;
+    float mic_y = 1.5f;
+    float mic_z = -3.0f;
     glm::vec3 starting_point = glm::vec3(mic_x, mic_y, mic_z);
-    glm::vec3 mic_velocity = glm::vec3(-0.0f, 0.0f, 0.0f);
+    glm::vec3 mic_velocity = glm::vec3(-0.1f, 0.0f, 0.0f);
     std::vector<float> energy_reading;
     std::vector<float> time_reading;
     float ile_czasu_czytac = 3; //do usuniecia, testowe
@@ -726,8 +726,8 @@ int main()
     glfwMakeContextCurrent(window);
 
     // Wczytaj plik WAV (podmieñ œcie¿kê na swoj¹)
-    if (!gAudio.loadWav("C:\\Users\\Zakol\\Desktop\\Inzynierka\\Project1\\sine_440Hz.wav")) {
-        std::cerr << "Nie mogê wczytaæ input.wav\n";
+    if (!gAudio.loadWav("sine_440Hz.wav")) {
+        std::cerr << "Nie mogê wczytac input.wav\n";
         // opcjonalnie: return -1;
     }
     beginNextWindow(); // uruchamiamy pierwsze okno 5 ms
