@@ -57,11 +57,11 @@ Cuboid_dimensions Obstacle;//PRZESZKODA W BASENIE
 
 //MIKROFON
 struct Micophone {
-    float mic_x = 2.0f;
-    float mic_y = 1.5f;
-    float mic_z = -3.0f;
+    float mic_x = 1.0f;
+    float mic_y = 1.0f;
+    float mic_z = 1.0f;
     glm::vec3 starting_point = glm::vec3(mic_x, mic_y, mic_z);
-    glm::vec3 mic_velocity = glm::vec3(-0.1f, 0.0f, 0.0f);
+    glm::vec3 mic_velocity = glm::vec3(-0.0f, 0.0f, 0.0f);
     std::vector<float> energy_reading;
     std::vector<float> time_reading;
     float ile_czasu_czytac = 3; //do usuniecia, testowe
@@ -121,7 +121,7 @@ struct Audio5ms {
     // Œrednia okna odpowiadaj¹cego czasowi t [s]
     float getAtTime(double t_sec) const {
         if (winMean.empty()) return 0.0f;
-        const double idx = (t_sec * 1000.0) / double(window_ms);
+        const double idx = (t_sec * 1000.0 + 1e-3) / double(window_ms);
         size_t k = (size_t)std::floor(idx);
         if (k >= winMean.size()) return 0.0f;  // poza nagraniem
         return winMean[k];
@@ -185,7 +185,7 @@ static bool beginNextWindow() {
     gWinEnergy = gAudio.winMean[gWinIdx++];
     gRec.accumAll = gRec.accumDir = gRec.accumRef = 0.0f;
     gRec.firstArrivalCaptured = false;
-
+     
     //Wypuszczanie nowej fali
     //resetWavefrontFromSource(gWinEnergy);
     first = true;
@@ -730,7 +730,7 @@ int main()
         std::cerr << "Nie mogê wczytac input.wav\n";
         // opcjonalnie: return -1;
     }
-    beginNextWindow(); // uruchamiamy pierwsze okno 5 ms
+    //beginNextWindow(); // uruchamiamy pierwsze okno 5 ms
     gAudio.window_ms = 5.0f;   // trzymamy 5 ms
 
     // to pod tym dodane do VBO 
@@ -968,7 +968,7 @@ void renderScene()
     //static std::vector<Triangle> triangles;
     if (first) {
         doKill = false;
-        glfwSetTime(0.0);  // wyzeruj stoper
+        //glfwSetTime(0.0);  // wyzeruj stoper
         nodes.clear();
         triangles.clear();
 
@@ -1056,7 +1056,7 @@ void renderScene()
         }
 
         nodes.reserve(verts.size());
-        const float audioE = gAudio.getAtTime((gWinIdx-1) * 0.005f);
+        const float audioE = gAudio.getAtTime((gWinIdx) * 50.0f / 10000.0f);
         for (const auto& p : verts) {
             node nd;
             nd.position = p;
@@ -1284,7 +1284,7 @@ int pruneSlowNodes(float minEnergy)
     gEdgeMidCache.clear();
     gMeshDirty = true;
 
-    if (doKill) killAllNodes();
+    if (doKill) killAllNodes(); // do testow
     // zgasniecie fali
     // Porównujemy œredni¹ energiê pozosta³ych nodów do energii startowej okna.
     // Jeœli spad³a poni¿ej progu albo nic nie zosta³o — koñczymy okno.
