@@ -27,6 +27,7 @@ void drawCuboidTransparentSorted(struct Cuboid_dimensions temp_Cube);
 int printOversizedTriangles(float maxArea);
 // Ustawia wêz³y w pozycji Ÿród³a i nadaje im prêdkoœci/kierunki startowe.
 void resetWavefrontFromSource(float energyPerNode);
+void killAllNodes();
 
 //Zapis do pliku po symulacji
 void writeEnvelopeWav(const char* path);
@@ -1059,7 +1060,7 @@ void renderScene()
         for (const auto& p : verts) {
             node nd;
             nd.position = p;
-            nd.velocity = nd.position * 5.0f;
+            nd.velocity = nd.position * 50.0f;
             nd.energy = audioE;
             nodes.push_back(nd);
         }
@@ -1283,11 +1284,13 @@ int pruneSlowNodes(float minEnergy)
     gEdgeMidCache.clear();
     gMeshDirty = true;
 
+    if (doKill) killAllNodes();
     // zgasniecie fali
     // Porównujemy œredni¹ energiê pozosta³ych nodów do energii startowej okna.
     // Jeœli spad³a poni¿ej progu albo nic nie zosta³o — koñczymy okno.
     const double meanEnergy = nodes.empty() ? 0.0 : (sumEnergy / double(nodes.size()));
-    const bool windowDied = (nodes.empty() || meanEnergy < (double)gWinEnergy * (double)gStopRatio);
+    //const bool windowDied = (nodes.empty() || meanEnergy < (double)gWinEnergy * (double)gStopRatio);
+    const bool windowDied = nodes.empty();
 
     if (windowDied) {
         // Odk³adamy 1 próbkê wyjœciow¹ (200 Hz) = to, co "z³apa³" mikrofon w tym oknie
@@ -1412,5 +1415,24 @@ void drawMicrophone()
     glEnd();
 
     //glPopMatrix();
+}
+
+// Zabija wszystkie nody (i trójk¹ty) – do debugu.
+void killAllNodes()
+{
+    nodes.clear();
+    triangles.clear();
+
+    // wyczyœæ stan rafinowania/mesh
+    gRefineCursor = 0;
+    gEdgeMidCache.clear();
+    gMeshDirty = true;
+
+    gLastV = gLastI = 0;
+    gIndexCount = 0;
+
+    // opcjonalnie: od razu „opró¿nij” bufory GPU
+    if (gVBO) { glBindBuffer(GL_ARRAY_BUFFER, gVBO); glBufferData(GL_ARRAY_BUFFER, 0, nullptr, GL_DYNAMIC_DRAW); glBindBuffer(GL_ARRAY_BUFFER, 0); }
+    if (gIBO) { glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, gIBO); glBufferData(GL_ELEMENT_ARRAY_BUFFER, 0, nullptr, GL_STATIC_DRAW); glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0); }
 }
 
