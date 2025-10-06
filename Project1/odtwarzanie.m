@@ -61,7 +61,7 @@ title(sprintf('Przebieg w czasie (kanał %d, %s) — %s', ...
 % 2) Widmo
 nexttile;
 plot(fax, P1); grid on;
-xlim([0, 100]);
+xlim([0, 2000]);
 xlabel('Częstotliwość [Hz]');
 ylabel('|X(f)|');
 title('Jednostronne widmo amplitudowe (FFT)');

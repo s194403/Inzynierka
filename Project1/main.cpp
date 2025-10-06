@@ -26,22 +26,38 @@ void renderScene();
 void drawCuboidTransparentSorted(struct Cuboid_dimensions temp_Cube);
 int printOversizedTriangles(float maxArea);
 // Ustawia wêz³y w pozycji Ÿród³a i nadaje im prêdkoœci/kierunki startowe.
-void resetWavefrontFromSource(float energyPerNode);
 void killAllNodes();
+void drawSource();
 
 //Zapis do pliku po symulacji
 void writeEnvelopeWav(const char* path);
 //int removeSlowNodes(float minSpeed);
 
+//WAZNE DANE
+float dt = 0.01;
+float mic_radius = 0.2f;
+float src_radius = 0.5f;
+float time_passed = 0.0f;
+
 struct node {
-    glm::vec3 position = glm::vec3(0, 0, 0);
-    glm::vec3 velocity = glm::vec3(0, 0, 0);
+    glm::vec3 position = {0,0,0};
+    glm::vec3 velocity = {0,0,0};    // kierunek propagacji * C_SOUND
     float     energy   = 0.0f;
-    uint8_t   bounces  = 0;   // NOWE: roœnie przy odbiciach od œcian/przeszkody
+    uint8_t   bounces  = 0;
 };
+
+struct source {
+    float src_x = 0.0f;
+    float src_y = 0.0f;
+    float src_z = 0.0f;
+    glm::vec3 starting_point = glm::vec3(src_x, src_y, src_z);
+    glm::vec3 velocity = glm::vec3(-0.2f, 0, 0);
+};
+source Source;
 
 std::vector<node> nodes;
 std::vector<node> mic_nodes;
+std::vector<node> src_nodes;
 
 struct Cuboid_dimensions {
     float width = 0.0f;
@@ -62,9 +78,9 @@ struct Micophone {
     float mic_z = 1.0f;
     glm::vec3 starting_point = glm::vec3(mic_x, mic_y, mic_z);
     glm::vec3 mic_velocity = glm::vec3(-0.0f, 0.0f, 0.0f);
-    std::vector<float> energy_reading;
-    std::vector<float> time_reading;
-    float ile_czasu_czytac = 3; //do usuniecia, testowe
+    //std::vector<float> energy_reading;
+    //std::vector<float> time_reading;
+    //float ile_czasu_czytac = 3; //do usuniecia, testowe
 };
 Micophone Mic;
 
@@ -73,7 +89,8 @@ struct Audio5ms {
     std::vector<float> mono;        // próbki mono w [-1,1]
     std::vector<float> winMean;     // œrednie z okien 5 ms
     uint32_t sampleRate = 0;
-    float window_ms = 5.0f;
+    //float window_ms = 5.0f / 100.0f;
+    float window_ms = 0.25f; // WAZNE: MUSI BYC 4 RAZY MNIEJSZE OD OKRESU FALI ZEBY NIE BYLO PRZESUNIECIA CZESTOTLIWOSCI 
 
     bool loadWav(const std::string& path) {
         drwav wav{};
@@ -187,7 +204,6 @@ static bool beginNextWindow() {
     gRec.firstArrivalCaptured = false;
      
     //Wypuszczanie nowej fali
-    //resetWavefrontFromSource(gWinEnergy);
     first = true;
     return true;
 }
@@ -198,6 +214,7 @@ struct Triangle {
 };
 std::vector<Triangle> triangles;
 std::vector<Triangle> microphone;
+std::vector<Triangle> source_tri;
 
 void drawMicrophone();
 int pruneSlowNodes(float minSpeed);
@@ -233,11 +250,6 @@ static int midpoint_index(int i0, int i1,
     cache.emplace(key, idx);
     return idx;
 }
-
-//WAZNE DANE
-float dt = 0.01;
-float mic_radius = 0.2f;
-float time_passed = 0.0f;
 
 void updatePhysics(float dt, struct Cuboid_dimensions Pool, struct Cuboid_dimensions temp_Obstacle)
 {
@@ -333,6 +345,10 @@ void updatePhysics(float dt, struct Cuboid_dimensions Pool, struct Cuboid_dimens
     Mic.mic_x += Mic.mic_velocity.x * dt;
     Mic.mic_y += Mic.mic_velocity.y * dt;
     Mic.mic_z += Mic.mic_velocity.z * dt;
+
+    Source.src_x += Source.velocity.x * dt;
+    Source.src_y += Source.velocity.y * dt;
+    Source.src_z += Source.velocity.z * dt;
     
     // Odbicia mikrofonu od œcian basenu, z uwzglêdnieniem promienia
     bounce1D(Mic.mic_x, Mic.mic_velocity.x, -Pool_halfW + Pool.x_offset + micR, Pool_halfW + Pool.x_offset - micR);
@@ -359,6 +375,7 @@ void updatePhysics(float dt, struct Cuboid_dimensions Pool, struct Cuboid_dimens
 
         // nowe pozycje
         p += v * dt;
+
 
         // Odbicia w XYZ
         // --- w pêtli po node'ach ---
@@ -731,7 +748,7 @@ int main()
         // opcjonalnie: return -1;
     }
     //beginNextWindow(); // uruchamiamy pierwsze okno 5 ms
-    gAudio.window_ms = 5.0f;   // trzymamy 5 ms
+    //gAudio.window_ms = 5.0f;   // trzymamy 5 ms
 
     // to pod tym dodane do VBO 
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
@@ -784,7 +801,7 @@ int main()
         //calculateFPS();
 
         
-        if (time_passed > Mic.ile_czasu_czytac && !pokazano_dane)
+        /*if (time_passed > Mic.ile_czasu_czytac && !pokazano_dane)
         {
             std::vector<float> time;
             std::vector<float> energy;
@@ -806,7 +823,7 @@ int main()
             }
             pokazano_dane = true;
 
-        }
+        }*/
         
         
 
@@ -1002,6 +1019,36 @@ void renderScene()
             microphone.push_back({ {initTris[i][0], initTris[i][1], initTris[i][2]} });
         }
 
+        // ------------- SOURCE ------------------
+        //gorny wierzcholek
+        buf.position = glm::vec3(Source.src_x, Source.src_y + src_radius, Source.src_z);
+        src_nodes.push_back(buf);
+
+        //boczne wierzcholki
+        for (int i = 1; i <= 5; ++i) {
+            buf.position = glm::vec3(Source.src_x + src_radius * cos(V_ANGLE) * cos(i * H_ANGLE), Source.src_y + src_radius * sin(V_ANGLE), Source.src_z + src_radius * cos(V_ANGLE) * sin(i * H_ANGLE));
+            src_nodes.push_back(buf);
+        }
+        for (int i = 6; i <= 10; ++i) {
+            buf.position = glm::vec3(Source.src_x + src_radius * cos(V_ANGLE) * cos((i + 0.5f) * H_ANGLE), Source.src_y + -src_radius * sin(V_ANGLE), Source.src_z + src_radius * cos(V_ANGLE) * sin((i + 0.5f) * H_ANGLE));
+            src_nodes.push_back(buf);
+        }
+
+        //dolny wierzcholek
+        buf.position = glm::vec3(Source.src_x, Source.src_y - src_radius, Source.src_z);
+        src_nodes.push_back(buf);
+
+        const int initTrisS[20][3] = {
+            {0,1,2}, {0,2,3}, {0,3,4}, {0,4,5}, {0,5,1},
+            {11,6,7}, {11,7,8}, {11,8,9}, {11,9,10}, {11,10,6},
+            {1,2,6}, {2,3,7}, {3,4,8}, {4,5,9}, {5,1,10},
+            {6,7,2}, {7,8,3}, {8,9,4}, {9,10,5}, {10,6,1}
+        };
+
+        for (int i = 0; i < 20; ++i) {
+            source_tri.push_back({ {initTrisS[i][0], initTrisS[i][1], initTrisS[i][2]} });
+        }
+
         // --- Parametr gêstoœci: ka¿dy poziom ×4 liczba trójk¹tów ---
         constexpr int SUBDIV = 3; // 2 optymalnie, wiecej laguje
 
@@ -1056,11 +1103,15 @@ void renderScene()
         }
 
         nodes.reserve(verts.size());
-        const float audioE = gAudio.getAtTime((gWinIdx) * 50.0f / 10000.0f);
+        glm::vec3 buf2 = glm::vec3(Source.src_x, Source.src_y, Source.src_z);
+        // prêdkoœæ Ÿród³a w chwili emisji (podmieñ na realne wartoœci/animacjê)
+        glm::vec3 gSourceVel = Source.velocity;
+        const float audioE = gAudio.getAtTime((gWinIdx) * gAudio.window_ms / 1000.0f);
         for (const auto& p : verts) {
             node nd;
             nd.position = p;
-            nd.velocity = nd.position * 50.0f;
+            nd.velocity = nd.position * 0.5f;
+            nd.position += buf2;
             nd.energy = audioE;
             nodes.push_back(nd);
         }
@@ -1100,7 +1151,7 @@ void renderScene()
     static int frameCount = 0;
     if ((frameCount % 2) == 0) {
         size_t budget = std::min<size_t>(4000, std::max<size_t>(1, triangles.size() / 10));
-        budget = triangles.size() / 12;
+        budget = triangles.size() / 4; //TO DO: MOZNA ZMIENIC NA WIEKSZE (W SENSIE ZMIENIC np. 4 -> 2)
         int threads = std::max(1u, std::thread::hardware_concurrency());
 
         if (refineIcosahedron_chunked_mt(0.05f, budget, threads)) {
@@ -1129,7 +1180,7 @@ void renderScene()
     //}
 
     //-----USUWANIE DOTKNIETYCH NODES-----
-    pruneSlowNodes(/*minSpeed=*/0.1f); // m/s (dobierz)
+    pruneSlowNodes(/*minSpeed=*/0.0f); // m/s (dobierz)
     //removeSlowNodes(/*minSpeed=*/4.00f);
 
     // 1) odbuduj bufory tylko gdy trzeba
@@ -1155,7 +1206,8 @@ void renderScene()
     drawSphereWithBuffers();
 
     glEnable(GL_DEPTH_TEST);
-    drawMicrophone();  
+    drawMicrophone();
+    drawSource();
     //PRZESZKODA
 
     glColor4f(0.2f, 0.5f, 0.2f, 0.7f);
@@ -1307,20 +1359,6 @@ int pruneSlowNodes(float minEnergy)
     return (int)(N - nodes.size());
 }
 
-void resetWavefrontFromSource(float energyPerNode)
-{
-    nodes.clear();
-    triangles.clear();
-    node s;
-    s.position = glm::vec3(0, 0, 0);     //pozycja Ÿród³a
-    s.velocity = glm::normalize(glm::vec3(1, 0, 0)); // kierunek & prêdkoœæ
-    s.energy = energyPerNode;
-    s.bounces = 0;
-    nodes.push_back(s);
-    // odbudowa siatki
-    gMeshDirty = true;
-}
-
 void drawCuboidTransparentSorted(struct Cuboid_dimensions temp_Cube) {
     float halfWidth = temp_Cube.width / 2.0f;
     float halfHeight = temp_Cube.height / 2.0f;
@@ -1408,6 +1446,40 @@ void drawMicrophone()
             int next = mic.indices[(j + 1) % 3];
             const auto& a = mic_nodes[current].position + (actual_position - Mic.starting_point);
             const auto& b = mic_nodes[next].position + (actual_position - Mic.starting_point);
+            glVertex3f(a.x, a.y, a.z);
+            glVertex3f(b.x, b.y, b.z);
+        }
+    }
+    glEnd();
+
+    //glPopMatrix();
+}
+
+void drawSource()
+{
+    //glPushMatrix();
+    //glTranslatef(Mic.mic_x, Mic.mic_y, Mic.mic_z);
+    glm::vec3 actual_position = glm::vec3(Source.src_x, Source.src_y, Source.src_z);
+    // ŒCIANY
+    glColor4f(1.0f, 1.0f, 1.0f, 0.5f);
+    glBegin(GL_TRIANGLES);
+    for (const auto& src : source_tri) {
+        for (int j = 0; j < 3; ++j) {
+            const auto& p = src_nodes[src.indices[j]].position + (actual_position - Source.starting_point); // lokalne (wokó³ œrodka)
+            glVertex3f(p.x, p.y, p.z);
+        }
+    }
+    glEnd();
+
+    // KRAWÊDZIE
+    glColor4f(0.0f, 0.0f, 0.0f, 0.5f);
+    glBegin(GL_LINES);
+    for (const auto& src : source_tri) {
+        for (int j = 0; j < 3; ++j) {
+            int current = src.indices[j];
+            int next = src.indices[(j + 1) % 3];
+            const auto& a = src_nodes[current].position + (actual_position - Source.starting_point);
+            const auto& b = src_nodes[next].position + (actual_position - Source.starting_point);
             glVertex3f(a.x, a.y, a.z);
             glVertex3f(b.x, b.y, b.z);
         }
