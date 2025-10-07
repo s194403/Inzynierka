@@ -284,25 +284,46 @@ void updatePhysics(float dt, struct Cuboid_dimensions Pool, struct Cuboid_dimens
             const float temp_Obstacle_halfH = 0.5f * temp_Obstacle.height;
             const float temp_Obstacle_halfD = 0.5f * temp_Obstacle.depth;
 
-            if (
-                (temp_Mic.mic_x > -temp_Obstacle_halfW + temp_Obstacle.x_offset + micR && temp_Mic.mic_y > -temp_Obstacle_halfH + temp_Obstacle.y_offset + micR
-                && temp_Mic.mic_z > -temp_Obstacle_halfD + temp_Obstacle.z_offset + micR) 
-                && 
-                (temp_Mic.mic_x < temp_Obstacle_halfW + temp_Obstacle.x_offset + micR && temp_Mic.mic_y < temp_Obstacle_halfH + temp_Obstacle.y_offset + micR
-                 && temp_Mic.mic_z < temp_Obstacle_halfD + temp_Obstacle.z_offset + micR)
-                )
+            if (temp_Obstacle_halfW + temp_Obstacle.x_offset >= 0)
             {
-                std::cout << "KOLIZJA Z MIKROFONEM" << std::endl;
-
-                if (temp_Mic.mic_x - 5 * eps < -temp_Obstacle_halfW + temp_Obstacle.x_offset || temp_Mic.mic_x + 5 * eps > temp_Obstacle_halfW + temp_Obstacle.x_offset)
+                if (temp_Mic.mic_x > -temp_Obstacle_halfW + temp_Obstacle.x_offset && temp_Mic.mic_x < temp_Obstacle_halfW + temp_Obstacle.x_offset)
                 {
                     temp_Mic.mic_velocity.x *= -1;
                 }
-                else if (temp_Mic.mic_y - 5 * eps < -temp_Obstacle_halfH + temp_Obstacle.y_offset || temp_Mic.mic_y + 5 * eps > temp_Obstacle_halfH + temp_Obstacle.y_offset)
+            }
+            else
+            {
+                if (temp_Mic.mic_x < -temp_Obstacle_halfW + temp_Obstacle.x_offset && temp_Mic.mic_x > temp_Obstacle_halfW + temp_Obstacle.x_offset)
+                {
+                    temp_Mic.mic_velocity.x *= -1;
+                }
+            }
+
+            if (temp_Obstacle_halfH + temp_Obstacle.y_offset >= 0)
+            {
+                if (temp_Mic.mic_y > -temp_Obstacle_halfH + temp_Obstacle.y_offset && temp_Mic.mic_y < temp_Obstacle_halfH + temp_Obstacle.y_offset)
                 {
                     temp_Mic.mic_velocity.y *= -1;
                 }
-                else if (temp_Mic.mic_z - 5 * eps < -temp_Obstacle_halfD + temp_Obstacle.z_offset || temp_Mic.mic_z + 5 * eps > temp_Obstacle_halfD + temp_Obstacle.z_offset)
+            }
+            else
+            {
+                if (temp_Mic.mic_y < -temp_Obstacle_halfH + temp_Obstacle.y_offset && temp_Mic.mic_y > temp_Obstacle_halfH + temp_Obstacle.y_offset)
+                {
+                    temp_Mic.mic_velocity.y *= -1;
+                }
+            }
+
+            if (temp_Obstacle_halfD + temp_Obstacle.z_offset >= 0)
+            {
+                if (temp_Mic.mic_z > -temp_Obstacle_halfD + temp_Obstacle.z_offset && temp_Mic.mic_z < temp_Obstacle_halfD + temp_Obstacle.z_offset)
+                {
+                    temp_Mic.mic_velocity.z *= -1;
+                }
+            }
+            else
+            {
+                if (temp_Mic.mic_z < -temp_Obstacle_halfD + temp_Obstacle.z_offset && temp_Mic.mic_z > temp_Obstacle_halfD + temp_Obstacle.z_offset)
                 {
                     temp_Mic.mic_velocity.z *= -1;
                 }
