@@ -36,7 +36,7 @@ void writeEnvelopeWav(const char* path);
 //WAZNE DANE
 float dt = 0.01;
 float mic_radius = 0.2f;
-float src_radius = 0.5f;
+float src_radius = 0.2f;
 float time_passed = 0.0f;
 
 struct node {
@@ -87,10 +87,10 @@ Micophone Mic;
 // plik WAV 
 struct Audio5ms {
     std::vector<float> mono;        // próbki mono w [-1,1]
-    std::vector<float> winMean;     // œrednie z okien 5 ms
+    std::vector<float> winMean;     // œrednie z okien X ms
     uint32_t sampleRate = 0;
     //float window_ms = 5.0f / 100.0f;
-    float window_ms = 0.25f; // WAZNE: MUSI BYC 4 RAZY MNIEJSZE OD OKRESU FALI ZEBY NIE BYLO PRZESUNIECIA CZESTOTLIWOSCI 
+    float window_ms = 1.0f; // WAZNE: MUSI BYC 4 RAZY MNIEJSZE OD OKRESU FALI ZEBY NIE BYLO PRZESUNIECIA CZESTOTLIWOSCI 
 
     bool loadWav(const std::string& path) {
         drwav wav{};
@@ -388,6 +388,12 @@ void updatePhysics(float dt, struct Cuboid_dimensions Pool, struct Cuboid_dimens
         if (bouncedAny) {
             nodes[i].bounces++;      // +1 za "jakiekolwiek" odbicie w tym kroku
         }
+
+        //------ODBICIA ZRODLA OD SCIAN------
+        bounce1D(Source.src_x, Source.velocity.x, -Pool_halfW + Pool.x_offset, Pool_halfW + Pool.x_offset);
+        bounce1D(Source.src_y, Source.velocity.y, -Pool_halfH + Pool.y_offset, Pool_halfH + Pool.y_offset);
+        bounce1D(Source.src_z, Source.velocity.z, -Pool_halfD + Pool.z_offset, Pool_halfD + Pool.z_offset);
+
 
         //odbicia od przeszkody (FALA)
         //--------MOZNA ZAKOMENTOWAC--------
@@ -1104,13 +1110,13 @@ void renderScene()
 
         nodes.reserve(verts.size());
         glm::vec3 buf2 = glm::vec3(Source.src_x, Source.src_y, Source.src_z);
-        // prêdkoœæ Ÿród³a w chwili emisji (podmieñ na realne wartoœci/animacjê)
+        // prêdkoœæ Ÿród³a w chwili emisji 
         glm::vec3 gSourceVel = Source.velocity;
         const float audioE = gAudio.getAtTime((gWinIdx) * gAudio.window_ms / 1000.0f);
         for (const auto& p : verts) {
             node nd;
             nd.position = p;
-            nd.velocity = nd.position * 0.5f;
+            nd.velocity = nd.position * 5.0f;
             nd.position += buf2;
             nd.energy = audioE;
             nodes.push_back(nd);

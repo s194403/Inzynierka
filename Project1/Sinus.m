@@ -3,8 +3,8 @@
 
 %% Parametry
 fs       = 48000;          % [Hz] częstotliwość próbkowania
-f        = 50;             % [Hz] częstotliwość sinusa
-duration = 2;            % [s] czas trwania
+f        = 100;             % [Hz] częstotliwość sinusa
+duration = 0.5;            % [s] czas trwania
 A        = 0.8;            % amplituda (0..1)
 phi      = 0;              % [rad] faza początkowa
 bits     = 16;             % rozdzielczość zapisu: 16/24/32
@@ -28,7 +28,7 @@ if maxabs > 1
 end
 
 %% --- UŚREDNIANIE CO 5 ms ---
-win_ms        = 5;                                  % długość okna w milisekundach
+win_ms        = 1;                                  % długość okna w milisekundach
 win_samples   = max(1, round((win_ms/1000)*fs));    % liczba próbek w 5 ms
 N             = size(y,1);
 C             = size(y,2);                          % 1 = mono, 2 = stereo
