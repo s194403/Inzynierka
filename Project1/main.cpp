@@ -13,6 +13,7 @@
 #include <string>
 #define DR_WAV_IMPLEMENTATION
 #include <dr_libs-master/dr_wav.h>
+#include <iomanip>
 #define M_PI 3.1415
 
 //#include <cstdlib> // wymagane dla exit()
@@ -35,15 +36,48 @@ void writeEnvelopeWav(const char* path);
 
 //WAZNE DANE
 float dt = 0.01;
-float mic_radius = 0.2f;
+float mic_radius = 0.5f;
 float src_radius = 0.2f;
 float time_passed = 0.0f;
 
+struct MicSample { float t; float value; };   // czas (s), wartoœæ próbki
+static std::vector<MicSample> gMicEvents;
+
+inline void logMicHit(float t_dop, float value) {
+    if (t_dop < 0.0f) t_dop = 0.0f;          // na wszelki wypadek
+    // std::lock_guard<std::mutex> lk(gMicMtx);
+    gMicEvents.push_back({ t_dop, value });
+}
+
+inline void resetMicEvents() { gMicEvents.clear(); }
+
+bool writeMicCsv(const std::string& path = "mic_out.csv") {
+    if (gMicEvents.empty()) return false;
+
+    std::sort(gMicEvents.begin(), gMicEvents.end(),
+        [](const MicSample& a, const MicSample& b) { return a.t < b.t; });
+
+    std::ofstream f(path, std::ios::out | std::ios::trunc);
+    if (!f) return false;
+
+    f.setf(std::ios::fixed);
+    f << "time,value\n";
+    f << std::setprecision(6);
+    for (const auto& s : gMicEvents) f << s.t << "," << s.value << "\n";
+    return true;
+}
+
 struct node {
-    glm::vec3 position = {0,0,0};
-    glm::vec3 velocity = {0,0,0};    // kierunek propagacji * C_SOUND
-    float     energy   = 0.0f;
-    uint8_t   bounces  = 0;
+    glm::vec3 position = { 0,0,0 };
+    glm::vec3 velocity = { 0,0,0 };    // kierunek propagacji * C_SOUND
+    float     energy = 0.0f;
+    uint8_t   bounces = 0;
+
+    // NOWE:
+    glm::vec3 srcVel = { 0,0,0 };    // prêdkoœæ Ÿród³a przy emisji
+    float     tEmit = 0.0f;       // czas emisji (sim-time)
+    glm::vec3 nEmit = { 0,0,0 };    // kierunek promienia przy emisji (unit)
+    float pathLen = 0.0f;   // ca³kowita przebyta droga od emisji (w metrach/jednostkach)
 };
 
 struct source {
@@ -51,7 +85,7 @@ struct source {
     float src_y = 0.0f;
     float src_z = 0.0f;
     glm::vec3 starting_point = glm::vec3(src_x, src_y, src_z);
-    glm::vec3 velocity = glm::vec3(-0.2f, 0, 0);
+    glm::vec3 velocity = glm::vec3(-0.0f, 0, 0);
 };
 source Source;
 
@@ -73,11 +107,11 @@ Cuboid_dimensions Obstacle;//PRZESZKODA W BASENIE
 
 //MIKROFON
 struct Micophone {
-    float mic_x = 1.0f;
+    float mic_x = 3.5f;
     float mic_y = 1.0f;
     float mic_z = 1.0f;
     glm::vec3 starting_point = glm::vec3(mic_x, mic_y, mic_z);
-    glm::vec3 mic_velocity = glm::vec3(-0.0f, 0.0f, 0.0f);
+    glm::vec3 mic_velocity = glm::vec3(0.3f, 0.0f, 0.0f);
     //std::vector<float> energy_reading;
     //std::vector<float> time_reading;
     //float ile_czasu_czytac = 3; //do usuniecia, testowe
@@ -90,7 +124,7 @@ struct Audio5ms {
     std::vector<float> winMean;     // œrednie z okien X ms
     uint32_t sampleRate = 0;
     //float window_ms = 5.0f / 100.0f;
-    float window_ms = 1.0f; // WAZNE: MUSI BYC 4 RAZY MNIEJSZE OD OKRESU FALI ZEBY NIE BYLO PRZESUNIECIA CZESTOTLIWOSCI 
+    float window_ms = 5.0f; // WAZNE: MUSI BYC 4 RAZY MNIEJSZE OD OKRESU FALI ZEBY NIE BYLO PRZESUNIECIA CZESTOTLIWOSCI 
 
     bool loadWav(const std::string& path) {
         drwav wav{};
@@ -177,7 +211,8 @@ void writeEnvelopeWav(const char* path)
     if (gRec.envelope.empty()) return;
 
     // 1 próbka na 5 ms => 200 Hz
-    const uint32_t outSR = (uint32_t)std::lround(1000.0 / gAudio.window_ms);
+    //const uint32_t outSR = (uint32_t)std::lround(1000.0 / gAudio.window_ms);
+    const uint32_t outSR = (uint32_t)std::lround(1000.0 / 4.0f);
 
     drwav_data_format fmt{};
     fmt.container = drwav_container_riff;
@@ -372,12 +407,12 @@ void updatePhysics(float dt, struct Cuboid_dimensions Pool, struct Cuboid_dimens
     Source.src_z += Source.velocity.z * dt;
     
     // Odbicia mikrofonu od œcian basenu, z uwzglêdnieniem promienia
-    bounce1D(Mic.mic_x, Mic.mic_velocity.x, -Pool_halfW + Pool.x_offset + micR, Pool_halfW + Pool.x_offset - micR);
-    bounce1D(Mic.mic_y, Mic.mic_velocity.y, -Pool_halfH + Pool.y_offset + micR, Pool_halfH + Pool.y_offset - micR);
-    bounce1D(Mic.mic_z, Mic.mic_velocity.z, -Pool_halfD + Pool.z_offset + micR, Pool_halfD + Pool.z_offset - micR);
+    //bounce1D(Mic.mic_x, Mic.mic_velocity.x, -Pool_halfW + Pool.x_offset + micR, Pool_halfW + Pool.x_offset - micR);
+    //bounce1D(Mic.mic_y, Mic.mic_velocity.y, -Pool_halfH + Pool.y_offset + micR, Pool_halfH + Pool.y_offset - micR);
+    //bounce1D(Mic.mic_z, Mic.mic_velocity.z, -Pool_halfD + Pool.z_offset + micR, Pool_halfD + Pool.z_offset - micR);
 
     //odbicia od przeszkody (MIKROFON)
-    bounceObstacleMic(Mic, temp_Obstacle);
+    //bounceObstacleMic(Mic, temp_Obstacle);
     
     //doKill = (glfwGetTime() >= 8.0);
     // --- 2) Integracja i odbicia punktów siatki ---
@@ -396,6 +431,7 @@ void updatePhysics(float dt, struct Cuboid_dimensions Pool, struct Cuboid_dimens
 
         // nowe pozycje
         p += v * dt;
+        nodes[i].pathLen += v.length() * dt;
 
 
         // Odbicia w XYZ
@@ -440,6 +476,7 @@ int addMidpoint(int a, int b) {
     midpoint.position = (nodes[a].position + nodes[b].position) * 0.5f;
     midpoint.velocity = (nodes[a].velocity + nodes[b].velocity) * 0.5f;
     midpoint.energy = (nodes[a].energy + nodes[b].energy) * 0.5f;
+    midpoint.tEmit = (nodes[a].tEmit + nodes[b].tEmit) * 0.5f;
     //midpoint.velocity = (nodes[a].velocity + nodes[b].velocity) * 0.5f;
 
     nodes.push_back(midpoint);
@@ -728,7 +765,7 @@ void calculateFPS() {
     }
 }
 
-float radius = 0.5f;
+float radius = 2.5f;
 //float mic_radius = 0.2f;
 const float H_ANGLE = M_PI / 180 * 72; // 72 stopni w radianach
 const float V_ANGLE = atanf(1.0f / 2); // Kat wierzcholka
@@ -790,9 +827,9 @@ int main()
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
 
     //POZYCJA I DEKLARACJA BASENU
-    Cube.width = 8.0f;
-    Cube.height = 6.0f;
-    Cube.depth = 10.0f;
+    Cube.width = 800.0f;
+    Cube.height = 600.0f;
+    Cube.depth = 1000.0f;
 
     //PRZESZKODA
     Obstacle.width = 0.3f;
@@ -800,7 +837,7 @@ int main()
     Obstacle.depth = 0.7f;
     Obstacle.x_offset = 15.0f;
     Obstacle.y_offset = 1.0f;
-    Obstacle.z_offset = 0.0f;
+    Obstacle.z_offset = 50.0f;
 
 
     while (!glfwWindowShouldClose(window))
@@ -1137,9 +1174,19 @@ void renderScene()
         for (const auto& p : verts) {
             node nd;
             nd.position = p;
-            nd.velocity = nd.position * 5.0f;
+            //nd.velocity = nd.position * 50.0f;
+            
+            // kierunek promienia (od Ÿród³a na zewn¹trz)
+            nd.nEmit = glm::normalize(p);
+            nd.pathLen = 0.f;
+            nd.velocity = nd.nEmit * 10.0f; // sta³a prêdkoœæ fali w oœrodku
+
             nd.position += buf2;
             nd.energy = audioE;
+
+            nd.srcVel = gSourceVel;  // zapisz prêdkoœæ Ÿród³a z chwili emisji
+            //nd.tEmit = (gWinIdx)*gAudio.window_ms / 1000.0f; // zapisz czas emisji (sim-time)
+            nd.tEmit = (gWinIdx)*gAudio.window_ms / 1000.0f;
             nodes.push_back(nd);
         }
 
@@ -1155,7 +1202,7 @@ void renderScene()
 
     //buildSphereBuffers(nodes, triangles, /*dynamic=*/true); //bledne bo caly czas sie wykonywalo
 
-    std::cout << "Ilosc punktow:" << nodes.size() << std::endl;
+    //std::cout << "Ilosc punktow:" << nodes.size() << std::endl;
     //if (nodes.size() >= 10000) exit(0);
     //std::cout << "Ilosc scian:" << triangles.size() << std::endl;
     /*for (int i = 0; i < nodes.size(); i++)
@@ -1181,7 +1228,7 @@ void renderScene()
         budget = triangles.size() / 4; //TO DO: MOZNA ZMIENIC NA WIEKSZE (W SENSIE ZMIENIC np. 4 -> 2)
         int threads = std::max(1u, std::thread::hardware_concurrency());
 
-        if (refineIcosahedron_chunked_mt(0.05f, budget, threads)) {
+        if (refineIcosahedron_chunked_mt(0.15f, budget, threads)) {
             gMeshDirty = true; // przebuduj bufory tylko gdy zasz³a zmiana
         }
     }
@@ -1315,12 +1362,37 @@ int pruneSlowNodes(float minEnergy)
         const glm::vec3 v = nodes[i].velocity;
         const float v2 = glm::dot(v, v);
 
-        const bool velocityEnough = (v2 >= thr2);
+        //const bool velocityEnough = (v2 >= thr2);
+        bool velocityEnough = true; // chwilowo do testow TO DO: ODKOMENTOWAC
         const bool hitMic = touchesMicrophone(nodes[i].position);
 
         if (hitMic && !only_one_read) {
             // Zarejestruj "odebranie" w tym oknie
+
+            // --- klasyczny Doppler w oœrodku spoczynkowym ---
+    // kierunek propagacji w chwili trafienia (normalna fali)
+            glm::vec3 nHit = glm::normalize(nodes[i].velocity);
+            // radialna prêdkoœæ mikrofonu: dodatnia gdy ZBLI¯A SIÊ do frontu fali
+            float v_r = -glm::dot(Mic.mic_velocity, nHit);
+            // radialna prêdkoœæ Ÿród³a (z chwili emisji): dodatnia gdy ODDALA SIÊ od odbiornika
+            float v_s = glm::dot(nodes[i].srcVel, nodes[i].nEmit);
+
+            // skala czasu miêdzy Ÿród³em a odbiornikiem:
+            // dt_mic = ((c - v_s) / (c + v_r)) * dt_source
+            float dopTimeScale = (10.0f - v_s) / (10.0f + v_r);
+
+            // wiek pakietu (ile czasu minê³o od emisji)
+            float age = time_passed - nodes[i].tEmit;
+
+            // efektywny czas zapisu w mikrofonie:
+            float t_dop = time_passed + (dopTimeScale - 1.0f) * age;
+
+
             gRec.accumAll += nodes[i].energy;
+            //const float t_mic = nodes[i].tEmit + (nodes[i].pathLen / v.length());
+            float t_mic = nodes[i].tEmit + (gAudio.window_ms / 1000.0f * (dopTimeScale - 1.0f)) * gWinIdx;
+            std::cout << t_mic << std::endl;
+            logMicHit(t_mic, /* np. */ nodes[i].energy);
             if (nodes[i].bounces == 0) gRec.accumDir += nodes[i].energy;
             else                       gRec.accumRef += nodes[i].energy;
 
@@ -1378,7 +1450,9 @@ int pruneSlowNodes(float minEnergy)
         // Czy mamy kolejne okno do nadania?
         if (!beginNextWindow()) {
             // Koniec ca³ego strumienia — nic wiêcej nie robimy
-            writeEnvelopeWav("mic_out_200Hz.wav");
+            //writeEnvelopeWav("mic_out_200Hz.wav");
+            writeMicCsv("mic_out.csv");    // <-- CSV zamiast writeEnvelopeWav(...)
+            resetMicEvents();
             // (tu mo¿esz ustawiæ jakiœ globalny "simFinished")
         }
     }
