@@ -85,7 +85,7 @@ struct source {
     float src_y = 0.0f;
     float src_z = 0.0f;
     glm::vec3 starting_point = glm::vec3(src_x, src_y, src_z);
-    glm::vec3 velocity = glm::vec3(-0.0f, 0, 0);
+    glm::vec3 velocity = glm::vec3(0.0f, 0, 0);
 };
 source Source;
 
@@ -111,7 +111,7 @@ struct Micophone {
     float mic_y = 1.0f;
     float mic_z = 1.0f;
     glm::vec3 starting_point = glm::vec3(mic_x, mic_y, mic_z);
-    glm::vec3 mic_velocity = glm::vec3(0.3f, 0.0f, 0.0f);
+    glm::vec3 mic_velocity = glm::vec3(0.0f, 0.0f, 0.0f);
     //std::vector<float> energy_reading;
     //std::vector<float> time_reading;
     //float ile_czasu_czytac = 3; //do usuniecia, testowe
@@ -407,9 +407,9 @@ void updatePhysics(float dt, struct Cuboid_dimensions Pool, struct Cuboid_dimens
     Source.src_z += Source.velocity.z * dt;
     
     // Odbicia mikrofonu od œcian basenu, z uwzglêdnieniem promienia
-    //bounce1D(Mic.mic_x, Mic.mic_velocity.x, -Pool_halfW + Pool.x_offset + micR, Pool_halfW + Pool.x_offset - micR);
-    //bounce1D(Mic.mic_y, Mic.mic_velocity.y, -Pool_halfH + Pool.y_offset + micR, Pool_halfH + Pool.y_offset - micR);
-    //bounce1D(Mic.mic_z, Mic.mic_velocity.z, -Pool_halfD + Pool.z_offset + micR, Pool_halfD + Pool.z_offset - micR);
+    bounce1D(Mic.mic_x, Mic.mic_velocity.x, -Pool_halfW + Pool.x_offset + micR, Pool_halfW + Pool.x_offset - micR);
+    bounce1D(Mic.mic_y, Mic.mic_velocity.y, -Pool_halfH + Pool.y_offset + micR, Pool_halfH + Pool.y_offset - micR);
+    bounce1D(Mic.mic_z, Mic.mic_velocity.z, -Pool_halfD + Pool.z_offset + micR, Pool_halfD + Pool.z_offset - micR);
 
     //odbicia od przeszkody (MIKROFON)
     //bounceObstacleMic(Mic, temp_Obstacle);
@@ -827,9 +827,9 @@ int main()
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
 
     //POZYCJA I DEKLARACJA BASENU
-    Cube.width = 800.0f;
-    Cube.height = 600.0f;
-    Cube.depth = 1000.0f;
+    Cube.width = 100.0f;
+    Cube.height = 100.0f;
+    Cube.depth = 100.0f;
 
     //PRZESZKODA
     Obstacle.width = 0.3f;
@@ -1168,7 +1168,7 @@ void renderScene()
 
         nodes.reserve(verts.size());
         glm::vec3 buf2 = glm::vec3(Source.src_x, Source.src_y, Source.src_z);
-        // prêdkoœæ Ÿród³a w chwili emisji 
+        // predkosc zrodla w chwili emisji 
         glm::vec3 gSourceVel = Source.velocity;
         const float audioE = gAudio.getAtTime((gWinIdx) * gAudio.window_ms / 1000.0f);
         for (const auto& p : verts) {
@@ -1176,15 +1176,15 @@ void renderScene()
             nd.position = p;
             //nd.velocity = nd.position * 50.0f;
             
-            // kierunek promienia (od Ÿród³a na zewn¹trz)
+            // kierunek promienia (od zrodla na zewn¹trz)
             nd.nEmit = glm::normalize(p);
             nd.pathLen = 0.f;
-            nd.velocity = nd.nEmit * 10.0f; // sta³a prêdkoœæ fali w oœrodku
+            nd.velocity = nd.nEmit * 10.0f; // stala prêdkosc fali w osrodku (kierunek przy 'nadaniu' * 10)
 
             nd.position += buf2;
             nd.energy = audioE;
 
-            nd.srcVel = gSourceVel;  // zapisz prêdkoœæ Ÿród³a z chwili emisji
+            nd.srcVel = gSourceVel;  // zapisz prpredkosc zrodla z chwili emisji
             //nd.tEmit = (gWinIdx)*gAudio.window_ms / 1000.0f; // zapisz czas emisji (sim-time)
             nd.tEmit = (gWinIdx)*gAudio.window_ms / 1000.0f;
             nodes.push_back(nd);
