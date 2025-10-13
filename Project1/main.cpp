@@ -11,13 +11,145 @@
 #include <unordered_map>
 #include <fstream>
 #include <string>
-#define DR_WAV_IMPLEMENTATION
-#include <dr_libs-master/dr_wav.h>
+//#define DR_WAV_IMPLEMENTATION
+//#include <dr_libs-master/dr_wav.h>
 #include <iomanip>
+#include <sstream>
+#include <cctype>
 #define M_PI 3.1415
 
+
+static constexpr float SOUND_V = 1440.0f / 1.0f; // C++
+bool serio_first = true;
+bool rewind_punkt = false;
+
+float radius = 0.5f;
+//float mic_radius = 0.2f;
+const float H_ANGLE = M_PI / 180 * 72; // 72 stopni w radianach
+const float V_ANGLE = atanf(1.0f / 2); // Kat wierzcholka
+
+static size_t gWinIdx = 0;          // który 5 ms segment aktualnie nadajemy
+
+//WAZNE DANE
+float dt = 0.00001f;
+float mic_radius = 0.5f;
+float src_radius = 0.5f;
+float time_passed = 0.0f;
+float window_ms = 1.0f;
+// --- NOWE: surowe dane z CSV ---
+std::vector<double> tSec;       // czas w sekundach (po przeskalowaniu)
+std::vector<float>  y;          // wartoœci próbek (2. kolumna)
+
+// do podzialu sfery na klatki
+// ==== PERSISTENT STATE dla rafinowania „po kawa³ku” ====
+static size_t gRefineCursor = 0; // gdzie skoñczyliœmy ostatnio
+static std::unordered_map<uint64_t, int> gEdgeMidCache; // edge -> midpoint
+
+const unsigned int SCR_WIDTH = 800;
+const unsigned int SCR_HEIGHT = 600;
+
+glm::vec3 cameraPos = glm::vec3(0.0f, 0.0f, 3.0f);
+glm::vec3 cameraFront = glm::vec3(0.0f, 0.0f, -1.0f);
+glm::vec3 cameraUp = glm::vec3(0.0f, 1.0f, 0.0f);
+
+bool firstMouse = true;
+bool mousePressed = false;
+float lastX = SCR_WIDTH / 2.0f;
+float lastY = SCR_HEIGHT / 2.0f;
+float yaw = -90.0f;
+float pitch = 0.0f;
+float fov = 45.0f;
+float deltaTime = 0.0f;
+float lastFrame = 0.0f;
+
+static bool gMeshDirty = true;           // trzeba odbudowaæ bufory (zmiana triangles/nodes count)
+struct MeshGL {
+    GLuint  vbo = 0;
+    GLuint  ibo = 0;
+    GLsizei indexCount = 0;
+    bool    dynamic = false;
+};
+
+struct Triangle {
+    int indices[3];
+};
+std::vector<Triangle> triangles;
+std::vector<Triangle> microphone;
+std::vector<Triangle> source_tri;
+
+// trzy zestawy: fala, mikrofon, Ÿród³o
+static MeshGL gWaveGL, gMicGL, gSrcGL;
+
+// do FPS
+int frameCount = 0;
+double previousTime = 0.0;
+double fps = 0.0;
+
+bool first = true;
+bool doKill = false;
+
+
+struct MicSample { float t; float value; };   // czas (s), wartoœæ próbki
+static std::vector<MicSample> gMicEvents;
+std::vector<float> winMean;     // œrednie z okien X ms
+
+struct node {
+    glm::vec3 position = { 0,0,0 };
+    glm::vec3 velocity = { 0,0,0 };    // kierunek propagacji * C_SOUND
+    float     energy = 0.0f;
+    uint8_t   bounces = 0; // w ostatecznej wersji mozna usunac chyba
+    float     tEmit = 0.0f;       // czas emisji (sim-time)
+};
+
+std::vector<node> nodes;
+std::vector<node> mic_nodes;
+std::vector<node> src_nodes;
+
+struct source {
+    float src_x = 0.0f;
+    float src_y = 0.0f;
+    float src_z = 0.0f;
+    //glm::vec3 starting_point = glm::vec3(src_x, src_y, src_z);
+    glm::vec3 velocity = glm::vec3(-100.0f, 0, 0);
+    glm::vec3 rewind_point = glm::vec3(src_x, src_y, src_z);
+    glm::vec3 rewind_vel = velocity;
+};
+source Source;
+
+struct Cuboid_dimensions {
+    float width = 0.0f;
+    float height = 0.0f;
+    float depth = 0.0f;
+    float x_offset = 0.0f;
+    float y_offset = 0.0f;
+    float z_offset = 0.0f;
+};
+Cuboid_dimensions Cube{
+    8000.0f, 6000.0f, 10000.0f,  // width, height, depth
+    0.0f,   0.0f,    0.0f        // x/y/z offset
+};
+
+Cuboid_dimensions Obstacle{
+    0.3f, 0.7f, 0.7f,       //width, height, depth
+    50.0f, 1.0f, 50.0f      // x/y/z offset
+};
+
+//MIKROFON
+struct Micophone {
+    float mic_x = 4.0f;
+    float mic_y = 0.0f;
+    float mic_z = 0.0f;
+    //glm::vec3 starting_point = glm::vec3(mic_x, mic_y, mic_z);
+    glm::vec3 mic_velocity = glm::vec3(100.0f, 0.0f, 0.0f);
+    glm::vec3 rewind_point = glm::vec3(mic_x, mic_y, mic_z);
+    glm::vec3 rewind_vel = mic_velocity;
+};
+Micophone Mic;
+
+
+
+
 //#include <cstdlib> // wymagane dla exit()
-float energia_test = 0.0f;
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void mouse_callback(GLFWwindow* window, double xpos, double ypos);
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
@@ -28,20 +160,17 @@ void drawCuboidTransparentSorted(struct Cuboid_dimensions temp_Cube);
 int printOversizedTriangles(float maxArea);
 // Ustawia wêz³y w pozycji Ÿród³a i nadaje im prêdkoœci/kierunki startowe.
 void killAllNodes();
-void drawSource();
-
+void buildBuffersFor(const std::vector<node>& verts, const std::vector<Triangle>& tris, MeshGL& m,bool dynamic = true);
+void updatePositionsFor(const std::vector<node>& verts, MeshGL& m);
+void drawMesh(const MeshGL& m,const glm::vec3& offset = glm::vec3(0),const glm::vec4& fill = glm::vec4(1.0f, 0.5f, 0.0f, 1.0f),const glm::vec4& wire = glm::vec4(0.0f, 0.0f, 0.0f, 0.6f),float wireWidth = 0.2f);
+static void buildIcosphereNodesTris(float radius, int subdiv, std::vector<node>& out_nodes, std::vector<Triangle>& out_tris);
 //Zapis do pliku po symulacji
-void writeEnvelopeWav(const char* path);
 //int removeSlowNodes(float minSpeed);
 
-//WAZNE DANE
-float dt = 0.01;
-float mic_radius = 0.5f;
-float src_radius = 0.2f;
-float time_passed = 0.0f;
-
-struct MicSample { float t; float value; };   // czas (s), wartoœæ próbki
-static std::vector<MicSample> gMicEvents;
+// Autodetekcja separatora: wybierz ';' jeœli jest, inaczej ','
+static inline char detect_sep(const std::string& line) {
+    return (line.find(';') != std::string::npos) ? ';' : ',';
+}
 
 inline void logMicHit(float t_dop, float value) {
     if (t_dop < 0.0f) t_dop = 0.0f;          // na wszelki wypadek
@@ -67,189 +196,76 @@ bool writeMicCsv(const std::string& path = "mic_out.csv") {
     return true;
 }
 
-struct node {
-    glm::vec3 position = { 0,0,0 };
-    glm::vec3 velocity = { 0,0,0 };    // kierunek propagacji * C_SOUND
-    float     energy = 0.0f;
-    uint8_t   bounces = 0;
-
-    // NOWE:
-    glm::vec3 srcVel = { 0,0,0 };    // prêdkoœæ Ÿród³a przy emisji
-    float     tEmit = 0.0f;       // czas emisji (sim-time)
-    glm::vec3 nEmit = { 0,0,0 };    // kierunek promienia przy emisji (unit)
-    float pathLen = 0.0f;   // ca³kowita przebyta droga od emisji (w metrach/jednostkach)
-};
-
-struct source {
-    float src_x = 0.0f;
-    float src_y = 0.0f;
-    float src_z = 0.0f;
-    glm::vec3 starting_point = glm::vec3(src_x, src_y, src_z);
-    glm::vec3 velocity = glm::vec3(-0.0f, 0, 0);
-};
-source Source;
-
-std::vector<node> nodes;
-std::vector<node> mic_nodes;
-std::vector<node> src_nodes;
-
-struct Cuboid_dimensions {
-    float width = 0.0f;
-    float height = 0.0f;
-    float depth = 0.0f;
-    float x_offset = 0.0f;
-    float y_offset = 0.0f;
-    float z_offset = 0.0f;
-};
-Cuboid_dimensions Cube; //POZYCJA BASENU W MAIN
-Cuboid_dimensions Obstacle;//PRZESZKODA W BASENIE
-
-
-//MIKROFON
-struct Micophone {
-    float mic_x = 3.5f;
-    float mic_y = 1.0f;
-    float mic_z = 1.0f;
-    glm::vec3 starting_point = glm::vec3(mic_x, mic_y, mic_z);
-    glm::vec3 mic_velocity = glm::vec3(0.3f, 0.0f, 0.0f);
-    //std::vector<float> energy_reading;
-    //std::vector<float> time_reading;
-    //float ile_czasu_czytac = 3; //do usuniecia, testowe
-};
-Micophone Mic;
-
-// plik WAV 
-struct Audio5ms {
-    std::vector<float> mono;        // próbki mono w [-1,1]
-    std::vector<float> winMean;     // œrednie z okien X ms
-    uint32_t sampleRate = 0;
-    //float window_ms = 5.0f / 100.0f;
-    float window_ms = 5.0f; // WAZNE: MUSI BYC 4 RAZY MNIEJSZE OD OKRESU FALI ZEBY NIE BYLO PRZESUNIECIA CZESTOTLIWOSCI 
-
-    bool loadWav(const std::string& path) {
-        drwav wav{};
-        if (!drwav_init_file(&wav, path.c_str(), nullptr)) return false;
-
-        sampleRate = wav.sampleRate;
-        const uint64_t frames = wav.totalPCMFrameCount;
-        const uint32_t ch = wav.channels;
-
-        std::vector<float> interleaved(frames * ch);
-        const uint64_t rd = drwav_read_pcm_frames_f32(&wav, frames, interleaved.data());
-        drwav_uninit(&wav);
-        if (rd == 0) return false;
-
-        // przejscie do mono
-        mono.resize(rd);
-        if (ch == 1) {
-            std::copy(interleaved.begin(), interleaved.begin() + rd, mono.begin());
-        }
-        else {
-            for (uint64_t i = 0; i < rd; ++i) {
-                double s = 0.0;
-                for (uint32_t c = 0; c < ch; ++c) s += interleaved[i * ch + c];
-                mono[i] = float(s / double(ch));
-            }
-        }
-        build5msMeans();
-        return true;
-    }
-
-    void build5msMeans() {
-        const size_t winN = (size_t)std::max(1.0, std::round(sampleRate * (window_ms / 1000.0)));
-        winMean.clear();
-        winMean.reserve((mono.size() + winN - 1) / winN);
-        for (size_t i = 0; i < mono.size(); i += winN) {
-            size_t end = std::min(mono.size(), i + winN);
-            double sum = 0.0;
-            for (size_t j = i; j < end; ++j) {
-                sum += mono[j];               // czysta œrednia wartoœci próbek
-            }
-            winMean.push_back(float(sum / double(end - i)));
-        }
-    }
-
-    // Œrednia okna odpowiadaj¹cego czasowi t [s]
-    float getAtTime(double t_sec) const {
-        if (winMean.empty()) return 0.0f;
-        const double idx = (t_sec * 1000.0 + 1e-3) / double(window_ms);
-        size_t k = (size_t)std::floor(idx);
-        if (k >= winMean.size()) return 0.0f;  // poza nagraniem
-        return winMean[k];
-    }
-};
-
-static Audio5ms gAudio;
-
-
-static size_t gWinIdx = 0;          // który 5 ms segment aktualnie nadajemy
-static float  gWinEnergy = 0.0f;    // energia przypisywana nowo "wypuszczanej" fali w tym oknie
-static float  gStopRatio = 0.05f;   // "znacz¹cy spadek" = 5% energii pocz¹tkowej (dopasuj)
-
-struct RecState {
-    std::vector<float> envelope;    // 1 próbka na okno 5 ms (200 Hz) – suma energii dojœæ
-    float accumAll = 0.0f;          // suma energii, które dotar³y do mikrofonu w bie¿¹cym oknie
-    float accumDir = 0.0f;          // (opcjonalnie) suma dla bez-odbiciowych
-    float accumRef = 0.0f;          // (opcjonalnie) suma dla odbitych
-    bool  firstArrivalCaptured = false; // na wypadek gdybyœ chcia³ zareagowaæ na "pierwsze dojœcie"
-} gRec;
-
-
-static bool gAllInputConsumed = false;  // skoñczy³y siê okna 5 ms z oryginalnego WAV
-static bool gWavFlushed = false;  // czy ju¿ zapisaliœmy wynik
-
-static inline bool captureReadyToWrite() {
-    // gotowi do zapisu, gdy nie ma ju¿ wejœcia i nic nie „leci” w scenie
-    return gAllInputConsumed && nodes.empty();
-}
-
-bool first = true;
-bool doKill = false;
-
-void writeEnvelopeWav(const char* path)
+// Parsuj CSV: kol.1 = czas, kol.2 = wartoœæ.
+// prosta wersja: bez sortowania, autodetekcji separatora itp.
+bool loadCsvSimple(const std::string& path,
+    char sep = ',',          // ustaw ';' jeœli tak masz
+    bool hasHeader = true,
+    double timeScale = 1.0)  // 1.0 gdy time_s w sekundach; 0.001 gdy w ms
 {
-    if (gRec.envelope.empty()) return;
+    tSec.clear(); y.clear(); winMean.clear();
 
-    // 1 próbka na 5 ms => 200 Hz
-    //const uint32_t outSR = (uint32_t)std::lround(1000.0 / gAudio.window_ms);
-    const uint32_t outSR = (uint32_t)std::lround(1000.0 / 4.0f);
+    std::ifstream f(path);
+    if (!f) return false;
 
-    drwav_data_format fmt{};
-    fmt.container = drwav_container_riff;
-    fmt.format = DR_WAVE_FORMAT_IEEE_FLOAT;
-    fmt.channels = 1;
-    fmt.sampleRate = outSR;
-    fmt.bitsPerSample = 32;
+    std::string line;
+    if (hasHeader) std::getline(f, line); // pomiñ nag³ówek
+    std::cout << line << std::endl;
 
-    drwav w;
-    if (!drwav_init_file_write(&w, path, &fmt, nullptr)) {
-        std::cerr << "Nie mogê otworzyæ do zapisu: " << path << "\n";
-        return;
+    while (std::getline(f, line)) {
+        if (line.empty()) continue;
+        size_t pos = line.find(sep);
+        if (pos == std::string::npos) continue;
+
+        double t = std::stod(line.substr(0, pos)) * timeScale; // -> sekundy
+        double v = std::stod(line.substr(pos + 1));
+        tSec.push_back(t);
+        y.push_back((float)v);
     }
-    drwav_write_pcm_frames(&w, gRec.envelope.size(), gRec.envelope.data());
-    drwav_uninit(&w);
+    if (tSec.empty()) return false;
+
+    // Uœrednianie w sta³ych oknach window_ms — bez interpolacji.
+    const double win_s = window_ms / 1000.0;
+    const double t0 = tSec.front();
+    const double tEnd = tSec.back();
+    const size_t nWin = (size_t)std::floor((tEnd - t0) / win_s) + 1;
+
+    winMean.assign(nWin, 0.0f);
+    std::vector<int> cnt(nWin, 0);
+
+    for (size_t i = 0; i < tSec.size(); ++i) {
+        size_t k = (size_t)((tSec[i] - t0) / win_s);
+        if (k >= nWin) k = nWin - 1;
+        winMean[k] += y[i];
+        cnt[k] += 1;
+    }
+    for (size_t k = 0; k < nWin; ++k) {
+        winMean[k] = cnt[k] ? (winMean[k] / cnt[k]) : 0.0f;  // puste okno = 0
+    }
+    return true;
 }
+
+// Œrednia okna odpowiadaj¹cego czasowi t [s]
+float getAtTime(double t_sec) {
+    if (winMean.empty()) return 0.0f;
+    const double idx = (t_sec * 1000.0 + 1e-3) / double(window_ms);
+    size_t k = (size_t)std::floor(idx);
+    if (k >= winMean.size()) return 0.0f;  // poza nagraniem
+    return winMean[k];
+}
+
 
 static bool beginNextWindow() {
-    if (gWinIdx >= gAudio.winMean.size()) {
+    if (gWinIdx >= winMean.size()) {
         return false; // nic wiêcej do nadania
     }
-    gWinEnergy = gAudio.winMean[gWinIdx++];
-    gRec.accumAll = gRec.accumDir = gRec.accumRef = 0.0f;
-    gRec.firstArrivalCaptured = false;
-     
+    gWinIdx++;
+
     //Wypuszczanie nowej fali
     first = true;
     return true;
 }
 
-
-struct Triangle {
-    int indices[3];
-};
-std::vector<Triangle> triangles;
-std::vector<Triangle> microphone;
-std::vector<Triangle> source_tri;
 
 void drawMicrophone();
 int pruneSlowNodes(float minSpeed);
@@ -313,8 +329,8 @@ void updatePhysics(float dt, struct Cuboid_dimensions Pool, struct Cuboid_dimens
             return false;
         };
 
-    auto bounceObstacleMic = [&](struct Micophone& temp_Mic,  struct Cuboid_dimensions temp_Obstacle)
-    {
+    auto bounceObstacleMic = [&](struct Micophone& temp_Mic, struct Cuboid_dimensions temp_Obstacle)
+        {
             const float temp_Obstacle_halfW = 0.5f * temp_Obstacle.width;
             const float temp_Obstacle_halfH = 0.5f * temp_Obstacle.height;
             const float temp_Obstacle_halfD = 0.5f * temp_Obstacle.depth;
@@ -364,7 +380,7 @@ void updatePhysics(float dt, struct Cuboid_dimensions Pool, struct Cuboid_dimens
                 }
             }
 
-    };
+        };
 
     auto bounceObstacleWave = [&](node& temp_node, struct Cuboid_dimensions temp_Obstacle)
         {
@@ -373,10 +389,10 @@ void updatePhysics(float dt, struct Cuboid_dimensions Pool, struct Cuboid_dimens
             const float temp_Obstacle_halfD = 0.5f * temp_Obstacle.depth;
 
             if ((temp_node.position.x > -temp_Obstacle_halfW + temp_Obstacle.x_offset && temp_node.position.y > -temp_Obstacle_halfH + temp_Obstacle.y_offset
-                && temp_node.position.z  > -temp_Obstacle_halfD + temp_Obstacle.z_offset)
+                && temp_node.position.z > -temp_Obstacle_halfD + temp_Obstacle.z_offset)
                 &&
-                (temp_node.position.x  < temp_Obstacle_halfW + temp_Obstacle.x_offset && temp_node.position.y < temp_Obstacle_halfH + temp_Obstacle.y_offset
-                    && temp_node.position.z   < temp_Obstacle_halfD + temp_Obstacle.z_offset))
+                (temp_node.position.x < temp_Obstacle_halfW + temp_Obstacle.x_offset && temp_node.position.y < temp_Obstacle_halfH + temp_Obstacle.y_offset
+                    && temp_node.position.z < temp_Obstacle_halfD + temp_Obstacle.z_offset))
             {
                 //std::cout << "KOLIZJA Z FALA" << std::endl;
                 if (temp_node.position.x - 5 * eps < -temp_Obstacle_halfW + temp_Obstacle.x_offset || temp_node.position.x + 5 * eps > temp_Obstacle_halfW + temp_Obstacle.x_offset)
@@ -405,42 +421,54 @@ void updatePhysics(float dt, struct Cuboid_dimensions Pool, struct Cuboid_dimens
     Source.src_x += Source.velocity.x * dt;
     Source.src_y += Source.velocity.y * dt;
     Source.src_z += Source.velocity.z * dt;
-    
+
     // Odbicia mikrofonu od œcian basenu, z uwzglêdnieniem promienia
-    //bounce1D(Mic.mic_x, Mic.mic_velocity.x, -Pool_halfW + Pool.x_offset + micR, Pool_halfW + Pool.x_offset - micR);
-    //bounce1D(Mic.mic_y, Mic.mic_velocity.y, -Pool_halfH + Pool.y_offset + micR, Pool_halfH + Pool.y_offset - micR);
-    //bounce1D(Mic.mic_z, Mic.mic_velocity.z, -Pool_halfD + Pool.z_offset + micR, Pool_halfD + Pool.z_offset - micR);
+    bounce1D(Mic.mic_x, Mic.mic_velocity.x, -Pool_halfW + Pool.x_offset + micR, Pool_halfW + Pool.x_offset - micR);
+    bounce1D(Mic.mic_y, Mic.mic_velocity.y, -Pool_halfH + Pool.y_offset + micR, Pool_halfH + Pool.y_offset - micR);
+    bounce1D(Mic.mic_z, Mic.mic_velocity.z, -Pool_halfD + Pool.z_offset + micR, Pool_halfD + Pool.z_offset - micR);
 
     //odbicia od przeszkody (MIKROFON)
-    //bounceObstacleMic(Mic, temp_Obstacle);
-    
+    bounceObstacleMic(Mic, temp_Obstacle);
+
     //doKill = (glfwGetTime() >= 8.0);
     // --- 2) Integracja i odbicia punktów siatki ---
-#pragma omp parallel for schedule(static)
-    for (int i = 0; i < (int)nodes.size(); ++i) 
+//#pragma omp parallel for schedule(static)
+    for (int i = 0; i < (int)nodes.size(); ++i)
     {
         auto& p = nodes[i].position;
         auto& v = nodes[i].velocity;
+        auto& energy = nodes[i].energy;
 
-        if (doKill)
-        {
-            nodes[i].velocity = glm::vec3(0, 0, 0);
-        }
         //nodes[i].energy *= e;
-        energia_test = nodes[i].energy;
+        //energia_test = nodes[i].energy;
 
         // nowe pozycje
         p += v * dt;
-        nodes[i].pathLen += v.length() * dt;
 
 
         // Odbicia w XYZ
         // --- w pêtli po node'ach ---
         bool bouncedAny = false;
 
-        bouncedAny |= bounce1D(p.x, v.x, -Pool_halfW + Pool.x_offset, Pool_halfW + Pool.x_offset);
-        bouncedAny |= bounce1D(p.y, v.y, -Pool_halfH + Pool.y_offset, Pool_halfH + Pool.y_offset);
-        bouncedAny |= bounce1D(p.z, v.z, -Pool_halfD + Pool.z_offset, Pool_halfD + Pool.z_offset);
+        if (bounce1D(p.x, v.x, -Pool_halfW + Pool.x_offset, Pool_halfW + Pool.x_offset))
+        {
+            bouncedAny |= true;
+            energy = energy * 0.5;
+        }
+        if (bounce1D(p.y, v.y, -Pool_halfH + Pool.y_offset, Pool_halfH + Pool.y_offset))
+        {
+            bouncedAny |= true;
+            energy = energy * 0.5;
+        }
+        if (bounce1D(p.z, v.z, -Pool_halfD + Pool.z_offset, Pool_halfD + Pool.z_offset))
+        {
+            bouncedAny |= true;
+            energy = energy * 0.5;
+        }
+
+        //bouncedAny |= bounce1D(p.x, v.x, -Pool_halfW + Pool.x_offset, Pool_halfW + Pool.x_offset);
+        //bouncedAny |= bounce1D(p.y, v.y, -Pool_halfH + Pool.y_offset, Pool_halfH + Pool.y_offset);
+        //bouncedAny |= bounce1D(p.z, v.z, -Pool_halfD + Pool.z_offset, Pool_halfD + Pool.z_offset);
 
         if (bouncedAny) {
             nodes[i].bounces++;      // +1 za "jakiekolwiek" odbicie w tym kroku
@@ -457,9 +485,22 @@ void updatePhysics(float dt, struct Cuboid_dimensions Pool, struct Cuboid_dimens
         bounceObstacleWave(nodes[i], temp_Obstacle);
 
     }
-    if (doKill) doKill = false;
+    //if (doKill) doKill = false;
     //dodaj czas
     time_passed += dt;
+    //if (time_passed > 0.0008)
+    //{
+    //    int zero = 0;
+    //}
+    if (time_passed / dt >= (window_ms / 1000.0f) / dt && rewind_punkt)
+    {
+        Mic.rewind_point = glm::vec3(Mic.mic_x, Mic.mic_y, Mic.mic_z);
+        Mic.rewind_vel = Mic.mic_velocity;
+        Source.rewind_point = glm::vec3(Source.src_x, Source.src_y, Source.src_z);
+        Source.rewind_vel = Source.velocity;
+        rewind_punkt = false;
+    }
+    //rewind_punkt = false;
 
 }
 
@@ -482,11 +523,6 @@ int addMidpoint(int a, int b) {
     nodes.push_back(midpoint);
     return (int)(nodes.size() - 1);
 }
-
-// do podzialu sfery na klatki
-// ==== PERSISTENT STATE dla rafinowania „po kawa³ku” ====
-static size_t gRefineCursor = 0; // gdzie skoñczyliœmy ostatnio
-static std::unordered_map<uint64_t, int> gEdgeMidCache; // edge -> midpoint
 
 // ====== POMOCNICZE ======
 struct Edge { int a, b; }; // zawsze a<b
@@ -651,7 +687,7 @@ bool refineIcosahedron_chunked_mt(float maxArea,
 
     // --- FAZA 3: RÓWNOLEGLE zbuduj nowe trójk¹ty do buforów per-w¹tek ---
     std::vector<std::vector<std::pair<int, Triangle>>> tl_replace(threadCount);
-    std::vector<std::vector<Triangle>>                tl_append(threadCount);  
+    std::vector<std::vector<Triangle>>                tl_append(threadCount);
 
     auto worker_build = [&](int tid) {
         size_t M = splitIdx.size();
@@ -709,47 +745,6 @@ bool refineIcosahedron_chunked_mt(float maxArea,
 }
 
 
-const unsigned int SCR_WIDTH = 800;
-const unsigned int SCR_HEIGHT = 600;
-
-glm::vec3 cameraPos = glm::vec3(0.0f, 0.0f, 3.0f);
-glm::vec3 cameraFront = glm::vec3(0.0f, 0.0f, -1.0f);
-glm::vec3 cameraUp = glm::vec3(0.0f, 1.0f, 0.0f);
-
-bool firstMouse = true;
-bool mousePressed = false;
-float lastX = SCR_WIDTH / 2.0f;
-float lastY = SCR_HEIGHT / 2.0f;
-float yaw = -90.0f;
-float pitch = 0.0f;
-float fov = 45.0f;
-float deltaTime = 0.0f;
-float lastFrame = 0.0f;
-
-//do przyspieszenia VBO
-static GLuint gVBO = 0;
-static GLuint gIBO = 0;
-static GLsizei gIndexCount = 0;
-static bool gMeshDirty = true;           // trzeba odbudowaæ bufory (zmiana triangles/nodes count)
-static size_t gLastV = 0, gLastI = 0;    // do detekcji zmian topologii
-
-//proba
-// VBO/IBO/VAO
-static GLuint gVAO = 0;
-static GLuint gVboPos = 0;      
-static GLuint gIbo = 0;
-
-static GLsizeiptr gPosBytes = 0;
-static GLsizeiptr gIboBytes = 0;
-
-// persistent mapping (opcjonalnie)
-static bool       gPosPersistent = false;
-static glm::vec3* gPosPtr = nullptr; // wskazanie na zmapowany bufor pozycji
-
-// do FPS
-int frameCount = 0;
-double previousTime = 0.0;
-double fps = 0.0;
 
 void calculateFPS() {
     double currentTime = glfwGetTime();
@@ -765,10 +760,6 @@ void calculateFPS() {
     }
 }
 
-float radius = 2.5f;
-//float mic_radius = 0.2f;
-const float H_ANGLE = M_PI / 180 * 72; // 72 stopni w radianach
-const float V_ANGLE = atanf(1.0f / 2); // Kat wierzcholka
 
 void mouse_button_callback(GLFWwindow* window, int button, int action, int mods) {
     if (button == GLFW_MOUSE_BUTTON_RIGHT) {
@@ -807,9 +798,13 @@ int main()
     glfwMakeContextCurrent(window);
 
     // Wczytaj plik WAV (podmieñ œcie¿kê na swoj¹)
-    if (!gAudio.loadWav("sine_440Hz.wav")) {
-        std::cerr << "Nie mogê wczytac input.wav\n";
-        // opcjonalnie: return -1;
+    if (!loadCsvSimple("sine_100Hz_orig.csv", ',', /*hasHeader=*/true)) {
+        std::cerr << "CSV: nie wczytano ¿adnych danych\n";
+    }
+    else {
+        std::cout << "CSV: wczytano " << tSec.size()
+            << " wierszy" << std::endl;
+
     }
     //beginNextWindow(); // uruchamiamy pierwsze okno 5 ms
     //gAudio.window_ms = 5.0f;   // trzymamy 5 ms
@@ -825,20 +820,6 @@ int main()
     glfwSetMouseButtonCallback(window, mouse_button_callback);
     glfwSetScrollCallback(window, scroll_callback);
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-
-    //POZYCJA I DEKLARACJA BASENU
-    Cube.width = 800.0f;
-    Cube.height = 600.0f;
-    Cube.depth = 1000.0f;
-
-    //PRZESZKODA
-    Obstacle.width = 0.3f;
-    Obstacle.height = 0.7f;
-    Obstacle.depth = 0.7f;
-    Obstacle.x_offset = 15.0f;
-    Obstacle.y_offset = 1.0f;
-    Obstacle.z_offset = 50.0f;
-
 
     while (!glfwWindowShouldClose(window))
     {
@@ -863,33 +844,6 @@ int main()
         renderScene();
         // Oblicz FPS
         //calculateFPS();
-
-        
-        /*if (time_passed > Mic.ile_czasu_czytac && !pokazano_dane)
-        {
-            std::vector<float> time;
-            std::vector<float> energy;
-            for (int i = 0; i < Mic.ile_czasu_czytac / dt ; i++)
-            {
-                time.push_back(dt * i);
-                for (int j = 0; j < Mic.time_reading.size(); j++)
-                {
-                    if (abs((dt*i - Mic.time_reading[j])) < dt)
-                    {
-                        energy.push_back(Mic.energy_reading[j]);
-                        std::cout << "ODCZYT =: " << "CZAS: " << time.back() << " ENERGIA: " << energy.back() << std::endl;
-                    }
-                    else
-                    {
-                        energy.push_back(0);
-                    }
-                }
-            }
-            pokazano_dane = true;
-
-        }*/
-        
-        
 
         glfwSwapBuffers(window);
         glfwPollEvents();
@@ -957,89 +911,6 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height)
     glViewport(0, 0, width, height);
 }
 
-void buildSphereBuffers(bool dynamic = true) {
-    if (!GLAD_GL_VERSION_1_5) { std::cerr << "VBO niedostêpne (GL < 1.5)\n"; return; }
-
-    // --- VBO (TERAZ: ca³y array 'nodes', bez przepakowywania do vec<vec3>) ---
-    if (!gVBO) glGenBuffers(1, &gVBO);
-    glBindBuffer(GL_ARRAY_BUFFER, gVBO);
-
-    const GLsizeiptr vbSize = (GLsizeiptr)(nodes.size() * sizeof(node));
-    const GLenum usage = dynamic ? GL_DYNAMIC_DRAW : GL_STATIC_DRAW;
-
-    glBufferData(GL_ARRAY_BUFFER, vbSize, nodes.empty() ? nullptr : (const void*)nodes.data(), usage);
-
-
-    glEnableClientState(GL_VERTEX_ARRAY); // compatibility profile
-    glVertexPointer(3, GL_FLOAT, (GLsizei)sizeof(node), (const void*)offsetof(node, position));
-
-    // --- IBO (bez tworzenia wektora 'indices') ---
-    if (!gIBO) glGenBuffers(1, &gIBO);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, gIBO);
-
-    const GLsizeiptr ibSize = (GLsizeiptr)(triangles.size() * 3 * sizeof(unsigned int));
-    const void* idxSrc = triangles.empty() ? nullptr : (const void*)&triangles[0].indices[0];
-
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, ibSize, idxSrc, GL_STATIC_DRAW);
-
-    gIndexCount = (GLsizei)(triangles.size() * 3);
-
-    // porz¹dek
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
-    glDisableClientState(GL_VERTEX_ARRAY);
-}
-
-
-void updateSpherePositions() {
-    if (!gVBO) return;
-
-    // Uwaga: wysy³amy CA£¥ strukturê node (nie tylko pozycjê)
-    // — ale to eliminuje pêtlê kopiuj¹c¹ pozycje po CPU.
-    glBindBuffer(GL_ARRAY_BUFFER, gVBO);
-    const GLsizeiptr vbSize = (GLsizeiptr)(nodes.size() * sizeof(node));
-
-    // orphan + jednorazowy transfer
-    glBufferData(GL_ARRAY_BUFFER, vbSize, nullptr, GL_DYNAMIC_DRAW);
-    if (!nodes.empty())
-        glBufferSubData(GL_ARRAY_BUFFER, 0, vbSize, (const void*)nodes.data());
-
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-}
-
-void drawSphereWithBuffers()
-{
-    if (!gVBO || !gIBO || gIndexCount == 0) return;
-
-    glBindBuffer(GL_ARRAY_BUFFER, gVBO);
-    glEnableClientState(GL_VERTEX_ARRAY);                           // compat profile
-    glVertexPointer(3, GL_FLOAT, (GLsizei)sizeof(node),
-        (const void*)offsetof(node, position));
-
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, gIBO);
-
-    // 1) Wype³nienie – z polygon offset, ¿eby obrys nie „miga³”
-    glEnable(GL_POLYGON_OFFSET_FILL);
-    glPolygonOffset(1.0f, 1.0f);          // odsuñ fill w g³¹b z-bufferu
-
-    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-    glColor4f(1.0f, 0.5f, 0.0f, 1.0f);
-    glDrawElements(GL_TRIANGLES, gIndexCount, GL_UNSIGNED_INT, (void*)0);
-
-    glDisable(GL_POLYGON_OFFSET_FILL);
-
-    // 2) Obrys (wireframe)
-    glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-    glLineWidth(0.2f);                    // mo¿esz podbiæ np. do 2.0
-    glColor4f(0.0f, 0.0f, 0.0f, 0.6f);
-    glDrawElements(GL_TRIANGLES, gIndexCount, GL_UNSIGNED_INT, (void*)0);
-
-    // 3) Sprz¹tanie
-    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-    glDisableClientState(GL_VERTEX_ARRAY);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
-}
 
 void renderScene()
 {
@@ -1047,75 +918,47 @@ void renderScene()
     //glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
     //static std::vector<Triangle> triangles;
-    if (first) {
+    if (first && !rewind_punkt) {
         doKill = false;
         //glfwSetTime(0.0);  // wyzeruj stoper
+        time_passed = 0.0f;
+        //microphone
+        Mic.mic_x = Mic.rewind_point.x;
+        Mic.mic_y = Mic.rewind_point.y;
+        Mic.mic_z = Mic.rewind_point.z;
+        Mic.mic_velocity = Mic.rewind_vel;
+        //source
+        Source.src_x = Source.rewind_point.x;
+        Source.src_y = Source.rewind_point.y;
+        Source.src_z = Source.rewind_point.z;
+        Source.velocity = Source.rewind_vel;
+
+        rewind_punkt = true;
+
         nodes.clear();
         triangles.clear();
 
-        //gorny wierzcholek
-        node buf;
-        buf.position = glm::vec3(Mic.mic_x, Mic.mic_y + mic_radius, Mic.mic_z);
-        mic_nodes.push_back(buf);
+        if (serio_first)
+        {
+            serio_first = false;
+            // Zbuduj geometriê dla mikrofonu i Ÿród³a — z tym samym SUBDIV co fala,
+           // lub jeœli chcesz, z osobnymi (np. SUBDIV_RIGID).
+            const int SUBDIV_RIGID = 2; // mo¿esz daæ 0..2 niezale¿nie od fali
 
-        //boczne wierzcholki
-        for (int i = 1; i <= 5; ++i) {
-            buf.position = glm::vec3(Mic.mic_x + mic_radius * cos(V_ANGLE) * cos(i * H_ANGLE), Mic.mic_y + mic_radius * sin(V_ANGLE), Mic.mic_z + mic_radius * cos(V_ANGLE) * sin(i * H_ANGLE));
-            mic_nodes.push_back(buf);
+            mic_nodes.clear();
+            microphone.clear();
+            buildIcosphereNodesTris(mic_radius, SUBDIV_RIGID, mic_nodes, microphone);
+
+            src_nodes.clear();
+            source_tri.clear();
+            buildIcosphereNodesTris(src_radius, SUBDIV_RIGID, src_nodes, source_tri);
+
+            // Bufory GPU dla statycznych meshów (model-space):
+            buildBuffersFor(mic_nodes, microphone, gMicGL, /*dynamic=*/false);
+            buildBuffersFor(src_nodes, source_tri, gSrcGL, /*dynamic=*/false);
         }
-        for (int i = 6; i <= 10; ++i) {
-            buf.position = glm::vec3(Mic.mic_x + mic_radius * cos(V_ANGLE) * cos((i + 0.5f) * H_ANGLE), Mic.mic_y + -mic_radius * sin(V_ANGLE), Mic.mic_z + mic_radius * cos(V_ANGLE) * sin((i + 0.5f) * H_ANGLE));
-            mic_nodes.push_back(buf);
-        }
-
-        //dolny wierzcholek
-        buf.position = glm::vec3(Mic.mic_x, Mic.mic_y - mic_radius, Mic.mic_z);
-        mic_nodes.push_back(buf);
-
-        const int initTris[20][3] = {
-            {0,1,2}, {0,2,3}, {0,3,4}, {0,4,5}, {0,5,1},
-            {11,6,7}, {11,7,8}, {11,8,9}, {11,9,10}, {11,10,6},
-            {1,2,6}, {2,3,7}, {3,4,8}, {4,5,9}, {5,1,10},
-            {6,7,2}, {7,8,3}, {8,9,4}, {9,10,5}, {10,6,1}
-        };
-
-        for (int i = 0; i < 20; ++i) {
-            microphone.push_back({ {initTris[i][0], initTris[i][1], initTris[i][2]} });
-        }
-
-        // ------------- SOURCE ------------------
-        //gorny wierzcholek
-        buf.position = glm::vec3(Source.src_x, Source.src_y + src_radius, Source.src_z);
-        src_nodes.push_back(buf);
-
-        //boczne wierzcholki
-        for (int i = 1; i <= 5; ++i) {
-            buf.position = glm::vec3(Source.src_x + src_radius * cos(V_ANGLE) * cos(i * H_ANGLE), Source.src_y + src_radius * sin(V_ANGLE), Source.src_z + src_radius * cos(V_ANGLE) * sin(i * H_ANGLE));
-            src_nodes.push_back(buf);
-        }
-        for (int i = 6; i <= 10; ++i) {
-            buf.position = glm::vec3(Source.src_x + src_radius * cos(V_ANGLE) * cos((i + 0.5f) * H_ANGLE), Source.src_y + -src_radius * sin(V_ANGLE), Source.src_z + src_radius * cos(V_ANGLE) * sin((i + 0.5f) * H_ANGLE));
-            src_nodes.push_back(buf);
-        }
-
-        //dolny wierzcholek
-        buf.position = glm::vec3(Source.src_x, Source.src_y - src_radius, Source.src_z);
-        src_nodes.push_back(buf);
-
-        const int initTrisS[20][3] = {
-            {0,1,2}, {0,2,3}, {0,3,4}, {0,4,5}, {0,5,1},
-            {11,6,7}, {11,7,8}, {11,8,9}, {11,9,10}, {11,10,6},
-            {1,2,6}, {2,3,7}, {3,4,8}, {4,5,9}, {5,1,10},
-            {6,7,2}, {7,8,3}, {8,9,4}, {9,10,5}, {10,6,1}
-        };
-
-        for (int i = 0; i < 20; ++i) {
-            source_tri.push_back({ {initTrisS[i][0], initTrisS[i][1], initTrisS[i][2]} });
-        }
-
         // --- Parametr gêstoœci: ka¿dy poziom ×4 liczba trójk¹tów ---
-        constexpr int SUBDIV = 3; // 2 optymalnie, wiecej laguje
-
+        constexpr int SUBDIV = 2; // 2 optymalnie, wiecej laguje
         // --- 12 wierzcho³ków  na sferze o promieniu 'radius' ---
         const float t = (1.0f + std::sqrt(5.0f)) * 0.5f; // z³ota proporcja
         std::vector<glm::vec3> verts = {
@@ -1168,25 +1011,16 @@ void renderScene()
 
         nodes.reserve(verts.size());
         glm::vec3 buf2 = glm::vec3(Source.src_x, Source.src_y, Source.src_z);
-        // prêdkoœæ Ÿród³a w chwili emisji 
-        glm::vec3 gSourceVel = Source.velocity;
-        const float audioE = gAudio.getAtTime((gWinIdx) * gAudio.window_ms / 1000.0f);
+        const float audioE = getAtTime((gWinIdx)*window_ms / 1000.0f);
         for (const auto& p : verts) {
             node nd;
             nd.position = p;
-            //nd.velocity = nd.position * 50.0f;
-            
-            // kierunek promienia (od Ÿród³a na zewn¹trz)
-            nd.nEmit = glm::normalize(p);
-            nd.pathLen = 0.f;
-            nd.velocity = nd.nEmit * 10.0f; // sta³a prêdkoœæ fali w oœrodku
+            nd.velocity = glm::normalize(p) * SOUND_V; // sta³a prêdkoœæ fali w oœrodku
 
             nd.position += buf2;
             nd.energy = audioE;
-
-            nd.srcVel = gSourceVel;  // zapisz prêdkoœæ Ÿród³a z chwili emisji
             //nd.tEmit = (gWinIdx)*gAudio.window_ms / 1000.0f; // zapisz czas emisji (sim-time)
-            nd.tEmit = (gWinIdx)*gAudio.window_ms / 1000.0f;
+            nd.tEmit = (gWinIdx)*window_ms / 1000.0f;
             nodes.push_back(nd);
         }
 
@@ -1195,37 +1029,15 @@ void renderScene()
             triangles.push_back({ { f.x, f.y, f.z } });
             //break;
         }
-
+        //buildSphereBuffers(/*dynamic=*/true);
+        buildBuffersFor(nodes, triangles, gWaveGL, /*dynamic=*/true);
         first = false;
-        buildSphereBuffers(/*dynamic=*/true);
     }
-
-    //buildSphereBuffers(nodes, triangles, /*dynamic=*/true); //bledne bo caly czas sie wykonywalo
-
-    //std::cout << "Ilosc punktow:" << nodes.size() << std::endl;
-    //if (nodes.size() >= 10000) exit(0);
-    //std::cout << "Ilosc scian:" << triangles.size() << std::endl;
-    /*for (int i = 0; i < nodes.size(); i++)
-    {
-        std::cout << "X:" << nodes[i].position.x << std::endl;
-        std::cout << "Y:" << nodes[i].position.y << std::endl;
-        std::cout << "Z:" << nodes[i].position.z << std::endl;
-        std::cout << std::endl;
-    }
-    std::cout << std::endl;
-    std::cout << "koniec" << std::endl;*/
-
-    //static int frameCount = 0;
-    //if (frameCount % 10 == 0) {
-    //    refineIcosahedron(nodes, 0.05f);
-    //    gMeshDirty = true;   // <-- DODAJ
-    //}
-    //frameCount++;
 
     static int frameCount = 0;
-    if ((frameCount % 2) == 0) {
+    if ((frameCount % 8) == 0) {
         size_t budget = std::min<size_t>(4000, std::max<size_t>(1, triangles.size() / 10));
-        budget = triangles.size() / 4; //TO DO: MOZNA ZMIENIC NA WIEKSZE (W SENSIE ZMIENIC np. 4 -> 2)
+        budget = triangles.size(); //TO DO: MOZNA ZMIENIC NA WIEKSZE (W SENSIE ZMIENIC np. 4 -> 2)
         int threads = std::max(1u, std::thread::hardware_concurrency());
 
         if (refineIcosahedron_chunked_mt(0.15f, budget, threads)) {
@@ -1233,40 +1045,22 @@ void renderScene()
         }
     }
     frameCount++;
-
-    //updatePhysics(dt);
-    /*Cuboid_dimensions Cube;
-    Cube.width = 80.0f;
-    Cube.height = 60.0f;
-    Cube.depth = 100.0f;*/
     updatePhysics(dt, Cube, Obstacle);
-
-    //--NAJPIERW SPRAWDZA CZY MIKROFON DOTYKA I JEST ODCZYT--- // TO DO: przeniesc to do pruneSlowNodes, bo po co dwa razy sprawdzac to samo
-    //for (size_t i = 0; i < nodes.size(); ++i)
-    //{
-    //    if (touchesMicrophone(nodes[i].position) && time_passed < Mic.ile_czasu_czytac) //odczytuje tylko pierwsze 30 sekund 
-    //    {
-    //        Mic.energy_reading.push_back(nodes[i].energy);
-    //        Mic.time_reading.push_back(time_passed);
-    //        //std::cout << "ODCZYT:" << "  ENERGIA: " << Mic.energy_reading.back() << " CZAS: " << Mic.time_reading.back() << std::endl;
-
-    //    }
-    //}
-
     //-----USUWANIE DOTKNIETYCH NODES-----
-    pruneSlowNodes(/*minSpeed=*/0.0f); // m/s (dobierz)
-    //removeSlowNodes(/*minSpeed=*/4.00f);
+    pruneSlowNodes(/*minSpeed=*/getAtTime((gWinIdx)*window_ms / 1000.0f)); // m/s (dobierz)
 
     // 1) odbuduj bufory tylko gdy trzeba
-    if (gMeshDirty || nodes.size() != gLastV || triangles.size() != gLastI) {
-        buildSphereBuffers(/*dynamic=*/true);
-        gLastV = nodes.size();
-        gLastI = triangles.size();
+    if (gMeshDirty) {
+        //buildSphereBuffers(/*dynamic=*/true);
+        buildBuffersFor(nodes, triangles, gWaveGL, /*dynamic=*/true);
         gMeshDirty = false;
     }
     else {
         // 2) w przeciwnym razie tylko podmieñ pozycje
-        updateSpherePositions();
+        //updateSpherePositions();
+        updatePositionsFor(nodes, gWaveGL);
+        updatePositionsFor(mic_nodes, gMicGL);
+        updatePositionsFor(src_nodes, gSrcGL);
     }
 
     // 3) rysuj TYLKO z VBO/IBO
@@ -1277,11 +1071,17 @@ void renderScene()
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glDisable(GL_DEPTH_TEST);
-    drawSphereWithBuffers();
+    //drawSphereWithBuffers();
+    // FALA (bez offsetu — pozycje absolutne)
+    drawMesh(gWaveGL);
 
     glEnable(GL_DEPTH_TEST);
-    drawMicrophone();
-    drawSource();
+    glm::vec3 micOffset = glm::vec3(Mic.mic_x, Mic.mic_y, Mic.mic_z);
+    drawMesh(gMicGL, micOffset, /*fill*/{ 1.0f, 0.4f, 0.8f, 0.5f });
+    glm::vec3 srcOffset = glm::vec3(Source.src_x, Source.src_y, Source.src_z);
+    drawMesh(gSrcGL, srcOffset, /*fill*/{ 1.0f, 1.0f, 1.0f, 0.5f });
+    //drawMicrophone();
+    //drawSource();
     //PRZESZKODA
 
     glColor4f(0.2f, 0.5f, 0.2f, 0.7f);
@@ -1289,7 +1089,7 @@ void renderScene()
     //glEnable(GL_DEPTH_TEST);
     // Basen
     glColor4f(0.0f, 0.0f, 1.0f, 0.1f);
-    drawCuboidTransparentSorted(Cube);  
+    drawCuboidTransparentSorted(Cube);
 }
 
 int printOversizedTriangles(float maxArea) {
@@ -1348,71 +1148,46 @@ int pruneSlowNodes(float minEnergy)
 {
     if (nodes.empty()) return 0;
 
-    const float thr2 = minEnergy;
+    const float thr2 = abs(minEnergy)/10.0f;
     const size_t N = nodes.size();
 
     std::vector<int>  remap(N, -1);
     std::vector<node> kept;
     kept.reserve(N);
 
-    double sumEnergy = 0.0;        // do oceny wygaszenia
     bool only_one_read = false;
+    //if (time_passed > 0.00095) doKill = true;
+    int test = 0;
     for (size_t i = 0; i < N; ++i) {
-        //const float E = nodes[i].energy;
-        const glm::vec3 v = nodes[i].velocity;
-        const float v2 = glm::dot(v, v);
+        const float E = abs(nodes[i].energy);
+        //const glm::vec3 v = nodes[i].velocity;
+        //const float v2 = glm::dot(v, v);
 
-        //const bool velocityEnough = (v2 >= thr2);
-        bool velocityEnough = true; // chwilowo do testow TO DO: ODKOMENTOWAC
+        const bool EnergyEnough = (E >= thr2);
+        //bool EnergyEnough = true; // chwilowo do testow TO DO: ODKOMENTOWAC
         const bool hitMic = touchesMicrophone(nodes[i].position);
 
         if (hitMic && !only_one_read) {
-            // Zarejestruj "odebranie" w tym oknie
-
-            // --- klasyczny Doppler w oœrodku spoczynkowym ---
-    // kierunek propagacji w chwili trafienia (normalna fali)
-            glm::vec3 nHit = glm::normalize(nodes[i].velocity);
-            // radialna prêdkoœæ mikrofonu: dodatnia gdy ZBLI¯A SIÊ do frontu fali
-            float v_r = -glm::dot(Mic.mic_velocity, nHit);
-            // radialna prêdkoœæ Ÿród³a (z chwili emisji): dodatnia gdy ODDALA SIÊ od odbiornika
-            float v_s = glm::dot(nodes[i].srcVel, nodes[i].nEmit);
-
-            // skala czasu miêdzy Ÿród³em a odbiornikiem:
-            // dt_mic = ((c - v_s) / (c + v_r)) * dt_source
-            float dopTimeScale = (10.0f - v_s) / (10.0f + v_r);
-
-            // wiek pakietu (ile czasu minê³o od emisji)
-            float age = time_passed - nodes[i].tEmit;
-
-            // efektywny czas zapisu w mikrofonie:
-            float t_dop = time_passed + (dopTimeScale - 1.0f) * age;
-
-
-            gRec.accumAll += nodes[i].energy;
-            //const float t_mic = nodes[i].tEmit + (nodes[i].pathLen / v.length());
-            float t_mic = nodes[i].tEmit + (gAudio.window_ms / 1000.0f * (dopTimeScale - 1.0f)) * gWinIdx;
-            std::cout << t_mic << std::endl;
+            float t_mic = nodes[i].tEmit + time_passed;
+            std::cout << gWinIdx << " " << time_passed << std::endl;
             logMicHit(t_mic, /* np. */ nodes[i].energy);
-            if (nodes[i].bounces == 0) gRec.accumDir += nodes[i].energy;
-            else                       gRec.accumRef += nodes[i].energy;
-
-            // "Pierwszy który dojdzie" – najpewniej bez odbiæ:
-            if (!gRec.firstArrivalCaptured && nodes[i].bounces == 0) {
-                gRec.firstArrivalCaptured = true;
-                // (opcjonalnie) mo¿esz tu zapisaæ timestamp/pozycjê
+            test++;
+            std::cout << test << std::endl;
+            if (nodes[i].bounces == 0)
+            {
+                std::cout << t_mic << " " << nodes[i].energy << std::endl;
             }
             doKill = true;
             only_one_read = true;
             // Ten node "przechwycony" przez mikrofon — nie zachowujemy go
             continue;
+            //break;
         }
 
-        if (velocityEnough) {
+        if (EnergyEnough) {
             remap[i] = (int)kept.size();
             kept.push_back(nodes[i]);
-            sumEnergy += nodes[i].energy;
         }
-        // wolne wêz³y wycinamy – przyspiesza symulacjê
     }
 
     // Triangles: zostaw tylko te, które przetrwa³y
@@ -1437,23 +1212,12 @@ int pruneSlowNodes(float minEnergy)
 
     if (doKill) killAllNodes(); // do testow
     // zgasniecie fali
-    // Porównujemy œredni¹ energiê pozosta³ych nodów do energii startowej okna.
-    // Jeœli spad³a poni¿ej progu albo nic nie zosta³o — koñczymy okno.
-    const double meanEnergy = nodes.empty() ? 0.0 : (sumEnergy / double(nodes.size()));
-    //const bool windowDied = (nodes.empty() || meanEnergy < (double)gWinEnergy * (double)gStopRatio);
     const bool windowDied = nodes.empty();
 
     if (windowDied) {
-        // Odk³adamy 1 próbkê wyjœciow¹ (200 Hz) = to, co "z³apa³" mikrofon w tym oknie
-        gRec.envelope.push_back(gRec.accumAll);
-
-        // Czy mamy kolejne okno do nadania?
-        if (!beginNextWindow()) {
-            // Koniec ca³ego strumienia — nic wiêcej nie robimy
-            //writeEnvelopeWav("mic_out_200Hz.wav");
-            writeMicCsv("mic_out.csv");    // <-- CSV zamiast writeEnvelopeWav(...)
+        if (!beginNextWindow() or gWinIdx == 50) {
+            writeMicCsv("mic_out.csv");    
             resetMicEvents();
-            // (tu mo¿esz ustawiæ jakiœ globalny "simFinished")
         }
     }
 
@@ -1521,75 +1285,6 @@ void drawCuboidTransparentSorted(struct Cuboid_dimensions temp_Cube) {
     glEnd();
 }
 
-
-void drawMicrophone()
-{
-    //glPushMatrix();
-    //glTranslatef(Mic.mic_x, Mic.mic_y, Mic.mic_z);
-    glm::vec3 actual_position = glm::vec3(Mic.mic_x, Mic.mic_y, Mic.mic_z);
-    // ŒCIANY
-    glColor4f(1.0f, 0.4f, 0.8f, 0.5f);
-    glBegin(GL_TRIANGLES);
-    for (const auto& mic : microphone) {
-        for (int j = 0; j < 3; ++j) {
-            const auto& p = mic_nodes[mic.indices[j]].position + (actual_position - Mic.starting_point); // lokalne (wokó³ œrodka)
-            glVertex3f(p.x, p.y, p.z);
-        }
-    }
-    glEnd();
-
-    // KRAWÊDZIE
-    glColor4f(0.0f, 0.0f, 0.0f, 0.5f);
-    glBegin(GL_LINES);
-    for (const auto& mic : microphone) {
-        for (int j = 0; j < 3; ++j) {
-            int current = mic.indices[j];
-            int next = mic.indices[(j + 1) % 3];
-            const auto& a = mic_nodes[current].position + (actual_position - Mic.starting_point);
-            const auto& b = mic_nodes[next].position + (actual_position - Mic.starting_point);
-            glVertex3f(a.x, a.y, a.z);
-            glVertex3f(b.x, b.y, b.z);
-        }
-    }
-    glEnd();
-
-    //glPopMatrix();
-}
-
-void drawSource()
-{
-    //glPushMatrix();
-    //glTranslatef(Mic.mic_x, Mic.mic_y, Mic.mic_z);
-    glm::vec3 actual_position = glm::vec3(Source.src_x, Source.src_y, Source.src_z);
-    // ŒCIANY
-    glColor4f(1.0f, 1.0f, 1.0f, 0.5f);
-    glBegin(GL_TRIANGLES);
-    for (const auto& src : source_tri) {
-        for (int j = 0; j < 3; ++j) {
-            const auto& p = src_nodes[src.indices[j]].position + (actual_position - Source.starting_point); // lokalne (wokó³ œrodka)
-            glVertex3f(p.x, p.y, p.z);
-        }
-    }
-    glEnd();
-
-    // KRAWÊDZIE
-    glColor4f(0.0f, 0.0f, 0.0f, 0.5f);
-    glBegin(GL_LINES);
-    for (const auto& src : source_tri) {
-        for (int j = 0; j < 3; ++j) {
-            int current = src.indices[j];
-            int next = src.indices[(j + 1) % 3];
-            const auto& a = src_nodes[current].position + (actual_position - Source.starting_point);
-            const auto& b = src_nodes[next].position + (actual_position - Source.starting_point);
-            glVertex3f(a.x, a.y, a.z);
-            glVertex3f(b.x, b.y, b.z);
-        }
-    }
-    glEnd();
-
-    //glPopMatrix();
-}
-
 // Zabija wszystkie nody (i trójk¹ty) – do debugu.
 void killAllNodes()
 {
@@ -1601,11 +1296,160 @@ void killAllNodes()
     gEdgeMidCache.clear();
     gMeshDirty = true;
 
-    gLastV = gLastI = 0;
-    gIndexCount = 0;
+    //gIndexCount = 0;
 
     // opcjonalnie: od razu „opró¿nij” bufory GPU
-    if (gVBO) { glBindBuffer(GL_ARRAY_BUFFER, gVBO); glBufferData(GL_ARRAY_BUFFER, 0, nullptr, GL_DYNAMIC_DRAW); glBindBuffer(GL_ARRAY_BUFFER, 0); }
-    if (gIBO) { glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, gIBO); glBufferData(GL_ELEMENT_ARRAY_BUFFER, 0, nullptr, GL_STATIC_DRAW); glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0); }
+    //if (gVBO) { glBindBuffer(GL_ARRAY_BUFFER, gVBO); glBufferData(GL_ARRAY_BUFFER, 0, nullptr, GL_DYNAMIC_DRAW); glBindBuffer(GL_ARRAY_BUFFER, 0); }
+    //if (gIBO) { glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, gIBO); glBufferData(GL_ELEMENT_ARRAY_BUFFER, 0, nullptr, GL_STATIC_DRAW); glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0); }
+}
+
+void buildBuffersFor(const std::vector<node>& verts,
+    const std::vector<Triangle>& tris,
+    MeshGL& m,
+    bool dynamic)
+{
+    if (!GLAD_GL_VERSION_1_5) { std::cerr << "VBO niedostêpne (GL < 1.5)\n"; return; }
+    m.dynamic = dynamic;
+
+    if (!m.vbo) glGenBuffers(1, &m.vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, m.vbo);
+
+    const GLsizeiptr vbSize = (GLsizeiptr)(verts.size() * sizeof(node));
+    const GLenum usage = dynamic ? GL_DYNAMIC_DRAW : GL_STATIC_DRAW;
+    glBufferData(GL_ARRAY_BUFFER, vbSize, verts.empty() ? nullptr : (const void*)verts.data(), usage);
+
+    if (!m.ibo) glGenBuffers(1, &m.ibo);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m.ibo);
+
+    const GLsizeiptr ibSize = (GLsizeiptr)(tris.size() * 3 * sizeof(unsigned int));
+    const void* idxSrc = tris.empty() ? nullptr : (const void*)&tris[0].indices[0];
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, ibSize, idxSrc, GL_STATIC_DRAW);
+
+    m.indexCount = (GLsizei)(tris.size() * 3);
+
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+}
+
+void updatePositionsFor(const std::vector<node>& verts, MeshGL& m)
+{
+    if (!m.vbo) return;
+    glBindBuffer(GL_ARRAY_BUFFER, m.vbo);
+
+    const GLsizeiptr vbSize = (GLsizeiptr)(verts.size() * sizeof(node));
+    glBufferData(GL_ARRAY_BUFFER, vbSize, nullptr, GL_DYNAMIC_DRAW);            // orphan
+    if (!verts.empty())
+        glBufferSubData(GL_ARRAY_BUFFER, 0, vbSize, (const void*)verts.data()); // upload
+
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+}
+
+void drawMesh(const MeshGL& m,
+    const glm::vec3& offset,
+    const glm::vec4& fill,
+    const glm::vec4& wire,
+    float wireWidth)
+{
+    if (!m.vbo || !m.ibo || m.indexCount == 0) return;
+
+    glPushMatrix();
+    if (offset.x != 0 || offset.y != 0 || offset.z != 0)
+        glTranslatef(offset.x, offset.y, offset.z);
+
+    glBindBuffer(GL_ARRAY_BUFFER, m.vbo);
+    glEnableClientState(GL_VERTEX_ARRAY); // compat profile
+    glVertexPointer(3, GL_FLOAT, (GLsizei)sizeof(node), (const void*)offsetof(node, position));
+
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m.ibo);
+
+    glEnable(GL_POLYGON_OFFSET_FILL);
+    glPolygonOffset(1.0f, 1.0f);
+
+    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+    glColor4f(fill.r, fill.g, fill.b, fill.a);
+    glDrawElements(GL_TRIANGLES, m.indexCount, GL_UNSIGNED_INT, (void*)0);
+
+    glDisable(GL_POLYGON_OFFSET_FILL);
+
+    glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+    glLineWidth(wireWidth);
+    glColor4f(wire.r, wire.g, wire.b, wire.a);
+    glDrawElements(GL_TRIANGLES, m.indexCount, GL_UNSIGNED_INT, (void*)0);
+
+    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+    glDisableClientState(GL_VERTEX_ARRAY);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+    glPopMatrix();
+}
+
+// Zwraca sferê wokó³ (0,0,0) o promieniu 'radius' i gêstoœci 'subdiv'
+static void buildIcosphereNodesTris(float radius, int subdiv,
+    std::vector<node>& out_nodes,
+    std::vector<Triangle>& out_tris)
+{
+    // --- 12 wierzcho³ków icosa ---
+    const float t = (1.0f + std::sqrt(5.0f)) * 0.5f;
+    std::vector<glm::vec3> verts = {
+        glm::normalize(glm::vec3(-1,  t,  0)),
+        glm::normalize(glm::vec3(1,  t,  0)),
+        glm::normalize(glm::vec3(-1, -t,  0)),
+        glm::normalize(glm::vec3(1, -t,  0)),
+
+        glm::normalize(glm::vec3(0, -1,  t)),
+        glm::normalize(glm::vec3(0,  1,  t)),
+        glm::normalize(glm::vec3(0, -1, -t)),
+        glm::normalize(glm::vec3(0,  1, -t)),
+
+        glm::normalize(glm::vec3(t,  0, -1)),
+        glm::normalize(glm::vec3(t,  0,  1)),
+        glm::normalize(glm::vec3(-t,  0, -1)),
+        glm::normalize(glm::vec3(-t,  0,  1)),
+    };
+    for (auto& v : verts) v *= radius;
+
+    std::vector<glm::ivec3> faces = {
+        {0,11,5}, {0,5,1}, {0,1,7}, {0,7,10}, {0,10,11},
+        {1,5,9},  {5,11,4}, {11,10,2}, {10,7,6}, {7,1,8},
+        {3,9,4},  {3,4,2},  {3,2,6},  {3,6,8},  {3,8,9},
+        {4,9,5},  {2,4,11}, {6,2,10}, {8,6,7},  {9,8,1}
+    };
+
+    // --- Subdivision z cache krawêdzi ---
+    for (int s = 0; s < subdiv; ++s) {
+        std::unordered_map<uint64_t, int> cache;
+        std::vector<glm::ivec3> new_faces;
+        new_faces.reserve(faces.size() * 4);
+
+        for (const auto& f : faces) {
+            int i0 = f.x, i1 = f.y, i2 = f.z;
+            int a = midpoint_index(i0, i1, verts, cache, radius);
+            int b = midpoint_index(i1, i2, verts, cache, radius);
+            int c = midpoint_index(i2, i0, verts, cache, radius);
+
+            new_faces.push_back({ i0, a, c });
+            new_faces.push_back({ i1, b, a });
+            new_faces.push_back({ i2, c, b });
+            new_faces.push_back({ a,  b, c });
+        }
+        faces.swap(new_faces);
+    }
+
+    // --- Konwersja do Twoich typów ---
+    out_nodes.clear();
+    out_nodes.reserve(verts.size());
+    for (const auto& p : verts) {
+        node nd;
+        nd.position = p;                 // MODEL-SPACE (bez translacji!)
+        nd.velocity = glm::vec3(0);      // statyczne
+        nd.energy = 0.0f;
+        out_nodes.push_back(nd);
+    }
+
+    out_tris.clear();
+    out_tris.reserve(faces.size());
+    for (const auto& f : faces) {
+        out_tris.push_back({ { f.x, f.y, f.z } });
+    }
 }
 
