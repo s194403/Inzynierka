@@ -18,6 +18,16 @@
 #include <cctype>
 #define M_PI 3.1415
 
+int test = 0;
+
+// gdzieœ przy sta³ych globalnych
+static constexpr float R0_ATTEN = 0.05f; // [m] – near-field cap (np. 5 cm)
+
+// — globals:
+static uint32_t gFrameId = 0;
+static float    gAvgEdgeLen = 0.0f;   // policzymy z siatki
+static int      gBlindRings = 5;      // „3 trójk¹ty”
+static float    gBlindRadius = 0.0f;  // = gBlindRings * gAvgEdgeLen
 
 static constexpr float SOUND_V = 1440.0f / 1.0f; // C++
 bool serio_first = true;
@@ -35,7 +45,7 @@ float dt = 0.00001f;
 float mic_radius = 0.5f;
 float src_radius = 0.5f;
 float time_passed = 0.0f;
-float window_ms = 1.0f;
+float window_ms = 5.0f;
 // --- NOWE: surowe dane z CSV ---
 std::vector<double> tSec;       // czas w sekundach (po przeskalowaniu)
 std::vector<float>  y;          // wartoœci próbek (2. kolumna)
@@ -77,6 +87,14 @@ std::vector<Triangle> triangles;
 std::vector<Triangle> microphone;
 std::vector<Triangle> source_tri;
 
+struct WindowPacket {
+    float tEmit = 0.0f;              // czas startu okna (sek)
+    float amplitude = 0.0f;          // np. max |y| z okna (do progowania/prune)
+    std::vector<float> times;        // czasy próbek RELATYWNE do tEmit [s], 0..5ms
+    std::vector<float> values;       // wartoœci próbek (surowe)
+};
+static std::vector<WindowPacket> gWinPackets;
+
 // trzy zestawy: fala, mikrofon, Ÿród³o
 static MeshGL gWaveGL, gMicGL, gSrcGL;
 
@@ -99,6 +117,16 @@ struct node {
     float     energy = 0.0f;
     uint8_t   bounces = 0; // w ostatecznej wersji mozna usunac chyba
     float     tEmit = 0.0f;       // czas emisji (sim-time)
+    //int       winId = -1;   // <--- NOWE: identyfikator pakietu 5 ms
+    // do Dopplera
+    glm::vec3 srcVel = { 0,0,0 };    // prêdkoœæ Ÿród³a przy emisji
+    glm::vec3 nEmit = { 0,0,0 };    // kierunek promienia przy emisji (unit)
+
+    int       seedId = -1;            // indeks wierzcho³ka siatki (opcjonalnie)
+    //uint32_t  suppressStamp = 0;      // znacznik „nie zapisuj do CSV” w tym kroku
+    float     suppressUntilT = -1e30f; // NOWE: nie logowaæ, jeœli T_hit <= suppressUntilT
+
+    float path = 0.0f;
 };
 
 std::vector<node> nodes;
@@ -110,7 +138,7 @@ struct source {
     float src_y = 0.0f;
     float src_z = 0.0f;
     //glm::vec3 starting_point = glm::vec3(src_x, src_y, src_z);
-    glm::vec3 velocity = glm::vec3(-100.0f, 0, 0);
+    glm::vec3 velocity = glm::vec3(-00.0f, 0, 0);
     glm::vec3 rewind_point = glm::vec3(src_x, src_y, src_z);
     glm::vec3 rewind_vel = velocity;
 };
@@ -125,7 +153,7 @@ struct Cuboid_dimensions {
     float z_offset = 0.0f;
 };
 Cuboid_dimensions Cube{
-    8000.0f, 6000.0f, 10000.0f,  // width, height, depth
+    18.0f, 6.0f, 20.0f,  // width, height, depth
     0.0f,   0.0f,    0.0f        // x/y/z offset
 };
 
@@ -136,11 +164,11 @@ Cuboid_dimensions Obstacle{
 
 //MIKROFON
 struct Micophone {
-    float mic_x = 4.0f;
-    float mic_y = 0.0f;
+    float mic_x = 4.5f;
+    float mic_y = 2.0f;
     float mic_z = 0.0f;
     //glm::vec3 starting_point = glm::vec3(mic_x, mic_y, mic_z);
-    glm::vec3 mic_velocity = glm::vec3(100.0f, 0.0f, 0.0f);
+    glm::vec3 mic_velocity = glm::vec3(00.0f, 000.0f, 0.0f);
     glm::vec3 rewind_point = glm::vec3(mic_x, mic_y, mic_z);
     glm::vec3 rewind_vel = mic_velocity;
 };
@@ -167,6 +195,24 @@ static void buildIcosphereNodesTris(float radius, int subdiv, std::vector<node>&
 //Zapis do pliku po symulacji
 //int removeSlowNodes(float minSpeed);
 
+static inline float q5(float t) {
+    // zaokr¹glenie do najbli¿szego kroku 1e-5 s (5 miejsc po przecinku)
+    // double w œrodku zmniejsza b³êdy kumulacji
+    return (float)(std::llround((double)t * 100000.0) / 100000.0);
+}
+
+static float computeAvgEdgeLen(const std::vector<glm::vec3>& V,
+    const std::vector<glm::ivec3>& F) {
+    double sum = 0; size_t cnt = 0;
+    for (auto& t : F) {
+        const auto& a = V[t.x], & b = V[t.y], & c = V[t.z];
+        sum += glm::length(a - b); ++cnt;
+        sum += glm::length(b - c); ++cnt;
+        sum += glm::length(c - a); ++cnt;
+    }
+    return cnt ? float(sum / cnt) : 0.0f;
+}
+
 // Autodetekcja separatora: wybierz ';' jeœli jest, inaczej ','
 static inline char detect_sep(const std::string& line) {
     return (line.find(';') != std::string::npos) ? ';' : ',';
@@ -180,19 +226,39 @@ inline void logMicHit(float t_dop, float value) {
 
 inline void resetMicEvents() { gMicEvents.clear(); }
 
+
 bool writeMicCsv(const std::string& path = "mic_out.csv") {
     if (gMicEvents.empty()) return false;
 
+    // 1) posortuj po czasie
     std::sort(gMicEvents.begin(), gMicEvents.end(),
         [](const MicSample& a, const MicSample& b) { return a.t < b.t; });
 
+    // 2) scal duplikaty czasów (dok³adnie równe) przez sumowanie wartoœci
+    std::vector<MicSample> merged;
+    merged.reserve(gMicEvents.size());
+    for (const auto& s : gMicEvents) {
+        if (!merged.empty() && merged.back().t == s.t) {
+            merged.back().value += s.value;
+        }
+        else {
+            merged.push_back(s);
+        }
+    }
+
+    // 3) zapisz do CSV
     std::ofstream f(path, std::ios::out | std::ios::trunc);
     if (!f) return false;
 
     f.setf(std::ios::fixed);
     f << "time,value\n";
-    f << std::setprecision(6);
-    for (const auto& s : gMicEvents) f << s.t << "," << s.value << "\n";
+    // (prec) mo¿esz dostosowaæ:
+    f << std::setprecision(9);
+    for (const auto& s : merged) {
+        f << s.t << ",";
+        f << std::setprecision(6) << s.value << "\n";
+        f << std::setprecision(9); // wróæ do prec dla czasu
+    }
     return true;
 }
 
@@ -224,50 +290,68 @@ bool loadCsvSimple(const std::string& path,
     }
     if (tSec.empty()) return false;
 
-    // Uœrednianie w sta³ych oknach window_ms — bez interpolacji.
-    const double win_s = window_ms / 1000.0;
+    // Sta³e 5 ms
+    const double win_s = 0.005;          // 5 ms w sekundach
     const double t0 = tSec.front();
     const double tEnd = tSec.back();
     const size_t nWin = (size_t)std::floor((tEnd - t0) / win_s) + 1;
 
+    // Przygotuj pakiety i (dla zgodnoœci) winMean jako "amplitudê"
+    gWinPackets.clear();
+    gWinPackets.resize(nWin);
     winMean.assign(nWin, 0.0f);
-    std::vector<int> cnt(nWin, 0);
+    std::vector<float> maxAbs(nWin, 0.0f);
 
+    // Zainicjuj tEmit dla ka¿dego okna
+    for (size_t k = 0; k < nWin; ++k) {
+        gWinPackets[k].tEmit = float(t0 + k * win_s);
+    }
+
+    // Rozdziel próbki do okien
     for (size_t i = 0; i < tSec.size(); ++i) {
         size_t k = (size_t)((tSec[i] - t0) / win_s);
         if (k >= nWin) k = nWin - 1;
-        winMean[k] += y[i];
-        cnt[k] += 1;
+
+        float tRel = float(tSec[i] - (t0 + k * win_s));  // czas wzgl. startu okna
+        gWinPackets[k].times.push_back(tRel);
+        gWinPackets[k].values.push_back(y[i]);
+
+        float a = std::fabs(y[i]);
+        if (a > maxAbs[k]) maxAbs[k] = a;
     }
+
+    // Ustal amplitude i dla zgodnoœci wpisz j¹ te¿ do winMean
     for (size_t k = 0; k < nWin; ++k) {
-        winMean[k] = cnt[k] ? (winMean[k] / cnt[k]) : 0.0f;  // puste okno = 0
+        gWinPackets[k].amplitude = maxAbs[k]; // definicja amplitudy: max|y|
+        winMean[k] = maxAbs[k];               // ¿eby getAtTime nadal dawa³ sensowny próg
     }
     return true;
 }
 
 // Œrednia okna odpowiadaj¹cego czasowi t [s]
 float getAtTime(double t_sec) {
+    if (!gWinPackets.empty()) {
+        const double win_s = 0.005; // 5 ms
+        size_t k = (size_t)std::floor((t_sec + 1e-9) / win_s);
+        if (k >= gWinPackets.size()) return 0.0f;
+        return gWinPackets[k].amplitude; // amplituda okna
+    }
+    // Fallback do starego
     if (winMean.empty()) return 0.0f;
     const double idx = (t_sec * 1000.0 + 1e-3) / double(window_ms);
     size_t k = (size_t)std::floor(idx);
-    if (k >= winMean.size()) return 0.0f;  // poza nagraniem
+    if (k >= winMean.size()) return 0.0f;
     return winMean[k];
 }
 
 
 static bool beginNextWindow() {
-    if (gWinIdx >= winMean.size()) {
-        return false; // nic wiêcej do nadania
-    }
+    if (gWinIdx >= gWinPackets.size()) return false;
     gWinIdx++;
-
-    //Wypuszczanie nowej fali
-    first = true;
+    first = true;   // wypuszczamy now¹ falê
     return true;
 }
 
-
-void drawMicrophone();
 int pruneSlowNodes(float minSpeed);
 
 static inline bool touchesMicrophone(const glm::vec3& p);
@@ -312,7 +396,7 @@ void updatePhysics(float dt, struct Cuboid_dimensions Pool, struct Cuboid_dimens
     const float eps = 0.001f; // minimalne odsuniêcie od œciany
 
     const float micR = mic_radius;
-
+    ++gFrameId;
     // Pomocnik do odbicia w 1D (szybki, inline'owalny)
     auto bounce1D = [&](float& pos, float& vel, float minb, float maxb) -> bool
         {
@@ -444,6 +528,16 @@ void updatePhysics(float dt, struct Cuboid_dimensions Pool, struct Cuboid_dimens
 
         // nowe pozycje
         p += v * dt;
+        // d³ugoœæ przebytego odcinka w tej klatce:
+        float stepLen = glm::length(v) * dt;           // (poprawka GLM!)
+        float r_prev = std::max(nodes[i].path, R0_ATTEN);
+        nodes[i].path += stepLen*0.01;
+        float r_now = std::max(nodes[i].path, R0_ATTEN);
+
+        // energia ~ 1/r  (utrzymuje proporcjê niezale¿nie od kroku dt)
+        energy *= (r_prev / r_now);
+        //energy = gWinPackets[gWinIdx].amplitude / nodes[i].path;
+        //energy = energy * 0.999999;
 
 
         // Odbicia w XYZ
@@ -492,6 +586,7 @@ void updatePhysics(float dt, struct Cuboid_dimensions Pool, struct Cuboid_dimens
     //{
     //    int zero = 0;
     //}
+
     if (time_passed / dt >= (window_ms / 1000.0f) / dt && rewind_punkt)
     {
         Mic.rewind_point = glm::vec3(Mic.mic_x, Mic.mic_y, Mic.mic_z);
@@ -500,6 +595,7 @@ void updatePhysics(float dt, struct Cuboid_dimensions Pool, struct Cuboid_dimens
         Source.rewind_vel = Source.velocity;
         rewind_punkt = false;
     }
+
     //rewind_punkt = false;
 
 }
@@ -518,6 +614,10 @@ int addMidpoint(int a, int b) {
     midpoint.velocity = (nodes[a].velocity + nodes[b].velocity) * 0.5f;
     midpoint.energy = (nodes[a].energy + nodes[b].energy) * 0.5f;
     midpoint.tEmit = (nodes[a].tEmit + nodes[b].tEmit) * 0.5f;
+    midpoint.srcVel = (nodes[a].srcVel + nodes[b].srcVel) * 0.5f;
+    midpoint.bounces = nodes[a].bounces;
+    midpoint.suppressUntilT = (nodes[a].suppressUntilT + nodes[b].suppressUntilT)*0.5f;
+    midpoint.path = (nodes[a].path + nodes[b].path) * 0.5f;
     //midpoint.velocity = (nodes[a].velocity + nodes[b].velocity) * 0.5f;
 
     nodes.push_back(midpoint);
@@ -1011,16 +1111,26 @@ void renderScene()
 
         nodes.reserve(verts.size());
         glm::vec3 buf2 = glm::vec3(Source.src_x, Source.src_y, Source.src_z);
-        const float audioE = getAtTime((gWinIdx)*window_ms / 1000.0f);
+        glm::vec3 gSourceVel = Source.velocity;
+        //const float audioE = getAtTime((gWinIdx)*window_ms / 1000.0f);
+        const auto& wp = gWinPackets[gWinIdx];       // aktualne 5 ms
+        int i = 0;
         for (const auto& p : verts) {
             node nd;
             nd.position = p;
+            nd.nEmit = glm::normalize(p);
             nd.velocity = glm::normalize(p) * SOUND_V; // sta³a prêdkoœæ fali w oœrodku
 
             nd.position += buf2;
-            nd.energy = audioE;
+            nd.srcVel = gSourceVel;
+            //nd.energy = audioE;
             //nd.tEmit = (gWinIdx)*gAudio.window_ms / 1000.0f; // zapisz czas emisji (sim-time)
-            nd.tEmit = (gWinIdx)*window_ms / 1000.0f;
+            //nd.tEmit = (gWinIdx)*window_ms / 1000.0f;
+
+            nd.energy = wp.amplitude;                 // u¿yj amplitudy okna
+            nd.tEmit = wp.tEmit;                     // czas emisji okna (sek)
+            //nd.winId = (int)gWinIdx;
+            nd.seedId = i++;
             nodes.push_back(nd);
         }
 
@@ -1031,6 +1141,12 @@ void renderScene()
         }
         //buildSphereBuffers(/*dynamic=*/true);
         buildBuffersFor(nodes, triangles, gWaveGL, /*dynamic=*/true);
+
+        // ...po zbudowaniu icosfery:
+        gAvgEdgeLen = computeAvgEdgeLen(verts, faces);
+        gBlindRadius = gBlindRings * gAvgEdgeLen;
+        //gBlindRadius = 2.5f;
+
         first = false;
     }
 
@@ -1159,34 +1275,113 @@ int pruneSlowNodes(float minEnergy)
     //if (time_passed > 0.00095) doKill = true;
     int test = 0;
     for (size_t i = 0; i < N; ++i) {
+        //nodes[i].energy = nodes[i].energy / nodes[i].path;
         const float E = abs(nodes[i].energy);
         //const glm::vec3 v = nodes[i].velocity;
         //const float v2 = glm::dot(v, v);
 
-        const bool EnergyEnough = (E >= thr2);
+        bool EnergyEnough = (E >= thr2);
+        //if (nodes[i].bounces > 1) EnergyEnough = false;
         //bool EnergyEnough = true; // chwilowo do testow TO DO: ODKOMENTOWAC
         const bool hitMic = touchesMicrophone(nodes[i].position);
 
-        if (hitMic && !only_one_read) {
-            float t_mic = nodes[i].tEmit + time_passed;
-            std::cout << gWinIdx << " " << time_passed << std::endl;
-            logMicHit(t_mic, /* np. */ nodes[i].energy);
-            test++;
-            std::cout << test << std::endl;
-            if (nodes[i].bounces == 0)
+        if (hitMic) {
+            const float win_s = window_ms / 1000.0f;         // 0.005 s
+            const float T = nodes[i].tEmit + time_passed; // czas przyjœcia pocz¹tku okna
+            const int   wid = gWinIdx;              // ID okna z NODA (nie gWinIdx!)
+            if (nodes[i].bounces == 3)
             {
-                std::cout << t_mic << " " << nodes[i].energy << std::endl;
+                int siema = 2;
             }
-            doKill = true;
-            only_one_read = true;
-            // Ten node "przechwycony" przez mikrofon — nie zachowujemy go
+
+            // Je¿eli ten node jest czasowo st³umiony — nie loguj do CSV (ale „zu¿yj” go)
+            if (T <= nodes[i].suppressUntilT) {
+                only_one_read = true;
+                continue;
+            }
+
+            // --- DOPPLER (rozci¹gniêcie/œciœniêcie osi czasu okna) ---
+            const glm::vec3 n_hat = glm::normalize(nodes[i].velocity);
+            const float     v_mic_proj = glm::dot(Mic.mic_velocity, n_hat);
+            const float     T2 = T + win_s * (1.0f + v_mic_proj / SOUND_V);
+            float           scale = (T2 - T) / win_s;
+            if (scale <= 0.0f) scale = 1e-4f;
+
+            // Logowanie pe³nego okna 5 ms (czas + wartoœci), amplituda dopasowana do noda
+            if (wid >= 0 && wid < (int)gWinPackets.size()) {
+                const auto& wp = gWinPackets[wid];
+                const float  Awin = (wp.amplitude != 0.0f) ? wp.amplitude : 1e-12f;
+                const float  scaleAmp = nodes[i].energy / Awin;
+                for (size_t j = 0; j < wp.times.size(); ++j) {
+                    float t_abs = T + scale * wp.times[j];     // [T, T2] po Dopplerze
+                    float val = wp.values[j] * scaleAmp;     // amplituda po odbiciach
+                    //t_abs += nodes[i].bounces * 0.1f;          // jeœli chcesz zachowaæ offset odbiæ
+                    logMicHit(q5(t_abs), val);
+                }
+            }
+            else {
+                // Fallback: gdyby brakowa³o pakietu okna
+                logMicHit(T, nodes[i].energy);
+            }
+
+            // === OŒLEPIANIE WY£¥CZNIE TEGO SAMEGO CZO£A (lokalny klaster) ===
+            // (1) horyzont czasowy t³umienia
+            // Wersja sta³a:
+            const float blind_until = T + 0.0015f;
+            // Wersja „fizyczna” (zale¿na od geometrii i prêdkoœci wzglêdnej) — jeœli wolisz:
+            // float c_rel = std::max(SOUND_V - v_mic_proj, 0.1f * SOUND_V);
+            // const float blind_until = T + (gBlindRadius / c_rel);
+
+            // (2) parametry filtrów klastra
+            const glm::vec3 center = nodes[i].position;                // pozycja trafionego noda
+            const glm::vec3 micC = glm::vec3(Mic.mic_x, Mic.mic_y, Mic.mic_z);   // <-- PODMIEÑ NA SWOJE POLA!
+            const float     cosMax = std::cos(glm::radians(20.0f));    // max ró¿nica kierunku (~20°)
+            const float     s_i = glm::dot(micC - nodes[i].position, n_hat); // proxy czasu dojœcia
+
+            for (size_t j = 0; j < nodes.size(); ++j) {
+                if (j == i) continue;
+
+                // To samo okno emisji (to samo czo³o czasowo)
+                if (gWinIdx != wid) continue;
+
+                // Zgodny kierunek propagacji (wyklucz inne odbicia)
+                const glm::vec3 nj_hat = glm::normalize(nodes[j].velocity);
+                if (glm::dot(n_hat, nj_hat) < cosMax) continue;
+
+                // Node musi zbli¿aæ siê do mikrofonu
+                const float s_j = glm::dot(micC - nodes[j].position, nj_hat);
+                if (s_j <= 0.0f) continue;
+
+                // Zbli¿ony przewidywany czas dojœcia (ró¿nica projekcji)
+                if (std::fabs(s_j - s_i) > 1.5f * gBlindRadius) continue;
+
+                // Blisko w przestrzeni (ok. „3 trójk¹ty”)
+                if (glm::length(nodes[j].position - center) > gBlindRadius) continue;
+
+                // Ustaw t³umienie do blind_until — zarówno w nodes[], jak i ewentualnie w kept[]
+                if (remap[j] != -1) {
+                    const int kj = remap[j];
+                    kept[kj].suppressUntilT = std::max(kept[kj].suppressUntilT, blind_until);
+                }
+                else {
+                    nodes[j].suppressUntilT = std::max(nodes[j].suppressUntilT, blind_until);
+                }
+            }
+
+            only_one_read = true;   // jeœli u Ciebie „zu¿ywa” noda po trafieniu
+            // (opcjonalnie) debug:
+            std::cout << "win=" << wid << "  T=" << T << "\n";
             continue;
-            //break;
         }
+
 
         if (EnergyEnough) {
             remap[i] = (int)kept.size();
-            kept.push_back(nodes[i]);
+            node cp = nodes[i];
+            // NA WSZELKI WYPADEK zsynchronizuj suppress z ewentualnymi pendingami:
+            // (jeœli wczeœniej ktoœ dopisa³ do nodes[i], to ju¿ to masz; ten krok tylko wzmacnia spójnoœæ)
+            // cp.suppressUntilT = std::max(cp.suppressUntilT, ???); // niepotrzebne przy remap-aktualizacji wy¿ej
+            kept.push_back(cp);
         }
     }
 
@@ -1215,7 +1410,7 @@ int pruneSlowNodes(float minEnergy)
     const bool windowDied = nodes.empty();
 
     if (windowDied) {
-        if (!beginNextWindow() or gWinIdx == 50) {
+        if (!beginNextWindow() or gWinIdx == 30) {
             writeMicCsv("mic_out.csv");    
             resetMicEvents();
         }

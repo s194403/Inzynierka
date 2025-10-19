@@ -3,7 +3,7 @@
 clear; clc;
 
 %% Parametry
-fs       = 10000;            % [Hz] cz. próbkowania
+fs       = 100000;            % [Hz] cz. próbkowania
 f        = 100;              % [Hz] cz. sinusa
 duration = 50*(1/f);         % [s] czas trwania (np. 50 okresów)
 A        = 0.8;              % amplituda (0..1)
