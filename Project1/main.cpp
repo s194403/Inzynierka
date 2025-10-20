@@ -252,7 +252,6 @@ bool writeMicCsv(const std::string& path = "mic_out.csv") {
 
     f.setf(std::ios::fixed);
     f << "time,value\n";
-    // (prec) mo¿esz dostosowaæ:
     f << std::setprecision(9);
     for (const auto& s : merged) {
         f << s.t << ",";
@@ -1156,7 +1155,7 @@ void renderScene()
         budget = triangles.size(); //TO DO: MOZNA ZMIENIC NA WIEKSZE (W SENSIE ZMIENIC np. 4 -> 2)
         int threads = std::max(1u, std::thread::hardware_concurrency());
 
-        if (refineIcosahedron_chunked_mt(0.15f, budget, threads)) {
+        if (refineIcosahedron_chunked_mt(0.1f, budget, threads)) {
             gMeshDirty = true; // przebuduj bufory tylko gdy zasz³a zmiana
         }
     }
