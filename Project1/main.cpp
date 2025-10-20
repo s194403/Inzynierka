@@ -24,6 +24,7 @@
 #define M_PI 3.1415
 
 int test = 0;
+bool simulation_running = false;
 
 // gdzieœ przy sta³ych globalnych
 static constexpr float R0_ATTEN = 0.05f; // [m] – near-field cap (np. 5 cm)
@@ -889,6 +890,8 @@ static void glfwErrorCallback(int code, const char* desc) { fprintf(stderr, "GLF
 //---------------------
 int main()
 {
+
+
     glfwSetErrorCallback(glfwErrorCallback);
     if (!glfwInit())
         return -1;
@@ -961,7 +964,10 @@ int main()
         
         // Oblicz FPS
         //calculateFPS();
-        renderScene();
+        //if (simulation_running)
+        //{
+            renderScene();
+        //}
 
         glfwPollEvents();
 
@@ -972,6 +978,15 @@ int main()
         ImGui::SetWindowSize(ImVec2(200, 200));
 
         ImGui::Begin("Parametry");
+        ImGui::Text("START/STOP");
+        if(ImGui::Button("Start"))
+        {
+            simulation_running = true;
+        }
+        if(ImGui::Button("Stop"))
+        {
+            simulation_running = false;
+        }
         ImGui::Text("Mikrofon");
         ImGui::InputFloat("Mic x", &Mic.mic_x, 0.1f, Mic.mic_x);
         ImGui::InputFloat("Mic y", &Mic.mic_y, 0.1f, Mic.mic_y);
@@ -1215,9 +1230,12 @@ void renderScene()
         }
     }
     frameCount++;
-    updatePhysics(dt, Cube, Obstacle);
-    //-----USUWANIE DOTKNIETYCH NODES-----
-    pruneSlowNodes(/*minSpeed=*/getAtTime((gWinIdx)*window_ms / 1000.0f)); // m/s (dobierz)
+    if (simulation_running)
+    {
+        updatePhysics(dt, Cube, Obstacle);
+        //-----USUWANIE DOTKNIETYCH NODES-----
+        pruneSlowNodes(/*minSpeed=*/getAtTime((gWinIdx)*window_ms / 1000.0f)); // m/s (dobierz)
+    }
 
     // 1) odbuduj bufory tylko gdy trzeba
     if (gMeshDirty) {
