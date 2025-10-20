@@ -16,6 +16,11 @@
 #include <iomanip>
 #include <sstream>
 #include <cctype>
+#include "imgui.h"
+#include "imgui_impl_glfw.h"
+#include "imgui_impl_opengl3.h"
+#include "imgui_impl_opengl3_loader.h"
+#include <windows.h>
 #define M_PI 3.1415
 
 int test = 0;
@@ -896,6 +901,14 @@ int main()
     }
     glfwMakeContextCurrent(window);
 
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext(); //inicjalizacja ImGui     
+    ImGuiIO& io = ImGui::GetIO(); (void)io;
+    ImGui::StyleColorsDark(); //ciemny motyw imgui
+    ImGui_ImplGlfw_InitForOpenGL(window, true); //setup
+    ImGui_ImplOpenGL3_Init("#version 330");
+    
+
     // Wczytaj plik WAV (podmieñ œcie¿kê na swoj¹)
     if (!loadCsvSimple("sine_100Hz_orig.csv", ',', /*hasHeader=*/true)) {
         std::cerr << "CSV: nie wczytano ¿adnych danych\n";
@@ -919,6 +932,8 @@ int main()
     glfwSetMouseButtonCallback(window, mouse_button_callback);
     glfwSetScrollCallback(window, scroll_callback);
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+    SHORT GetAsyncKeyState(_In_ int vKey);
+    
 
     while (!glfwWindowShouldClose(window))
     {
@@ -930,6 +945,10 @@ int main()
 
         glClearColor(0.5f, 0.5f, 0.5f, 0.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        ImGui_ImplOpenGL3_NewFrame();
+        ImGui_ImplGlfw_NewFrame();
+        ImGui::NewFrame();
 
         glm::mat4 projection = glm::perspective(glm::radians(fov), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
         glm::mat4 view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
@@ -944,9 +963,25 @@ int main()
         // Oblicz FPS
         //calculateFPS();
 
+        //---IMGUI---
+        ImGui::Begin("Parametry");
+        ImGui::Text("BZDURY");
+        ImGui::End();
+
+
+        ImGui::Render();
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+        //---Koniec IMGUI----
+
         glfwSwapBuffers(window);
         glfwPollEvents();
+
     }
+
+    ImGui_ImplOpenGL3_Shutdown();
+    ImGui_ImplGlfw_Shutdown();
+    ImGui::DestroyContext();
+
 
     glfwTerminate();
     return 0;

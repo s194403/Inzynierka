@@ -13,10 +13,66 @@
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
+    <Filter Include="Pliki nagłówkowe\imgui">
+      <UniqueIdentifier>{e02d0cb9-3e37-4ba0-bf3a-b59ac3923a10}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Pliki źródłowe\imgui">
+      <UniqueIdentifier>{b7baae2b-56c2-4f8e-b54e-5cb118e8f351}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp">
       <Filter>Pliki źródłowe</Filter>
     </ClCompile>
+    <ClCompile Include="libraries\imgui-master\imgui.cpp">
+      <Filter>Pliki źródłowe\imgui</Filter>
+    </ClCompile>
+    <ClCompile Include="libraries\imgui-master\imgui_demo.cpp">
+      <Filter>Pliki źródłowe\imgui</Filter>
+    </ClCompile>
+    <ClCompile Include="libraries\imgui-master\imgui_draw.cpp">
+      <Filter>Pliki źródłowe\imgui</Filter>
+    </ClCompile>
+    <ClCompile Include="libraries\imgui-master\imgui_impl_glfw.cpp">
+      <Filter>Pliki źródłowe\imgui</Filter>
+    </ClCompile>
+    <ClCompile Include="libraries\imgui-master\imgui_impl_opengl3.cpp">
+      <Filter>Pliki źródłowe\imgui</Filter>
+    </ClCompile>
+    <ClCompile Include="libraries\imgui-master\imgui_tables.cpp">
+      <Filter>Pliki źródłowe\imgui</Filter>
+    </ClCompile>
+    <ClCompile Include="libraries\imgui-master\imgui_widgets.cpp">
+      <Filter>Pliki źródłowe\imgui</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="libraries\imgui-master\imstb_truetype.h">
+      <Filter>Pliki nagłówkowe\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="libraries\imgui-master\imconfig.h">
+      <Filter>Pliki nagłówkowe\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="libraries\imgui-master\imgui.h">
+      <Filter>Pliki nagłówkowe\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="libraries\imgui-master\imgui_impl_glfw.h">
+      <Filter>Pliki nagłówkowe\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="libraries\imgui-master\imgui_impl_opengl3.h">
+      <Filter>Pliki nagłówkowe\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="libraries\imgui-master\imgui_internal.h">
+      <Filter>Pliki nagłówkowe\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="libraries\imgui-master\imstb_rectpack.h">
+      <Filter>Pliki nagłówkowe\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="libraries\imgui-master\imstb_textedit.h">
+      <Filter>Pliki nagłówkowe\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="libraries\imgui-master\backends\imgui_impl_opengl3_loader.h">
+      <Filter>Pliki nagłówkowe\imgui</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>
