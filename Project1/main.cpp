@@ -932,7 +932,6 @@ int main()
     glfwSetMouseButtonCallback(window, mouse_button_callback);
     glfwSetScrollCallback(window, scroll_callback);
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-    SHORT GetAsyncKeyState(_In_ int vKey);
     
 
     while (!glfwWindowShouldClose(window))
@@ -945,10 +944,7 @@ int main()
 
         glClearColor(0.5f, 0.5f, 0.5f, 0.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-        ImGui_ImplOpenGL3_NewFrame();
-        ImGui_ImplGlfw_NewFrame();
-        ImGui::NewFrame();
+        
 
         glm::mat4 projection = glm::perspective(glm::radians(fov), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
         glm::mat4 view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
@@ -964,6 +960,11 @@ int main()
         //calculateFPS();
 
         //---IMGUI---
+        ImGui_ImplOpenGL3_NewFrame();
+        ImGui_ImplGlfw_NewFrame();
+        ImGui::NewFrame();
+        ImGui::SetWindowSize(ImVec2(200, 200));
+
         ImGui::Begin("Parametry");
         ImGui::Text("BZDURY");
         ImGui::End();
