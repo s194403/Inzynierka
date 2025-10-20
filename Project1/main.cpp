@@ -901,12 +901,6 @@ int main()
     }
     glfwMakeContextCurrent(window);
 
-    IMGUI_CHECKVERSION();
-    ImGui::CreateContext(); //inicjalizacja ImGui     
-    ImGuiIO& io = ImGui::GetIO(); (void)io;
-    ImGui::StyleColorsDark(); //ciemny motyw imgui
-    ImGui_ImplGlfw_InitForOpenGL(window, true); //setup
-    ImGui_ImplOpenGL3_Init("#version 330");
     
 
     // Wczytaj plik WAV (podmieñ œcie¿kê na swoj¹)
@@ -933,6 +927,14 @@ int main()
     glfwSetScrollCallback(window, scroll_callback);
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
     
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext(); //inicjalizacja ImGui     
+    ImGuiIO& io = ImGui::GetIO(); (void)io;
+    ImGui::StyleColorsDark(); //ciemny motyw imgui
+    ImGui_ImplGlfw_InitForOpenGL(window, true); //setup
+    ImGui_ImplOpenGL3_Init("#version 330");
+
+
 
     while (!glfwWindowShouldClose(window))
     {
@@ -945,7 +947,6 @@ int main()
         glClearColor(0.5f, 0.5f, 0.5f, 0.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         
-
         glm::mat4 projection = glm::perspective(glm::radians(fov), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
         glm::mat4 view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
 
@@ -955,9 +956,12 @@ int main()
         glMatrixMode(GL_MODELVIEW);
         glLoadMatrixf(&view[0][0]);
 
-        renderScene();
+        
         // Oblicz FPS
         //calculateFPS();
+        renderScene();
+
+        glfwPollEvents();
 
         //---IMGUI---
         ImGui_ImplOpenGL3_NewFrame();
@@ -975,7 +979,7 @@ int main()
         //---Koniec IMGUI----
 
         glfwSwapBuffers(window);
-        glfwPollEvents();
+        
 
     }
 
