@@ -884,7 +884,9 @@ void scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
 
 static void glfwErrorCallback(int code, const char* desc) { fprintf(stderr, "GLFW[%d]: %s\n", code, desc); }
 
+//---------------------
 //--------MAIN---------
+//---------------------
 int main()
 {
     glfwSetErrorCallback(glfwErrorCallback);
@@ -970,7 +972,20 @@ int main()
         ImGui::SetWindowSize(ImVec2(200, 200));
 
         ImGui::Begin("Parametry");
-        ImGui::Text("BZDURY");
+        ImGui::Text("Mikrofon");
+        ImGui::InputFloat("Mic x", &Mic.mic_x, 0.1f, Mic.mic_x);
+        ImGui::InputFloat("Mic y", &Mic.mic_y, 0.1f, Mic.mic_y);
+        ImGui::InputFloat("Mic z", &Mic.mic_z, 0.1f, Mic.mic_z);
+        ImGui::InputFloat("Vel x", &Mic.mic_velocity.x, 5.0f, Mic.mic_velocity.x);
+        ImGui::InputFloat("Vel y", &Mic.mic_velocity.y, 5.0f, Mic.mic_velocity.y);
+        ImGui::InputFloat("Vel z", &Mic.mic_velocity.z, 5.0f, Mic.mic_velocity.z);
+        ImGui::Text("Zrodlo");
+        ImGui::InputFloat("Src x", &Source.src_x, 0.1f, Source.src_x);
+        ImGui::InputFloat("Src y", &Source.src_y, 0.1f, Source.src_y);
+        ImGui::InputFloat("Src z", &Source.src_z, 0.1f, Source.src_z);
+        ImGui::InputFloat("Vel x", &Source.velocity.x, 5.0f, Source.velocity.x);
+        ImGui::InputFloat("Vel y", &Source.velocity.y, 5.0f, Source.velocity.y);
+        ImGui::InputFloat("Vel z", &Source.velocity.z, 5.0f, Source.velocity.z);
         ImGui::End();
 
 
