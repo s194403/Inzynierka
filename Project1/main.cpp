@@ -932,6 +932,8 @@ int main()
     glfwSetScrollCallback(window, scroll_callback);
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
     
+
+    //Rzeczy od ImGui
     IMGUI_CHECKVERSION();
     ImGui::CreateContext(); //inicjalizacja ImGui     
     ImGuiIO& io = ImGui::GetIO(); (void)io;
@@ -977,8 +979,7 @@ int main()
         ImGui::NewFrame();
         ImGui::SetWindowSize(ImVec2(200, 200));
 
-        ImGui::Begin("Parametry");
-        ImGui::Text("START/STOP");
+        ImGui::Begin("Start/Stop");
         if(ImGui::Button("Start"))
         {
             simulation_running = true;
@@ -987,21 +988,31 @@ int main()
         {
             simulation_running = false;
         }
+        ImGui::End();
+        ImGui::Begin("Parametry");
         ImGui::Text("Mikrofon");
         ImGui::InputFloat("Mic x", &Mic.mic_x, 0.1f, Mic.mic_x);
         ImGui::InputFloat("Mic y", &Mic.mic_y, 0.1f, Mic.mic_y);
         ImGui::InputFloat("Mic z", &Mic.mic_z, 0.1f, Mic.mic_z);
-        ImGui::InputFloat("Vel x", &Mic.mic_velocity.x, 5.0f, Mic.mic_velocity.x);
-        ImGui::InputFloat("Vel y", &Mic.mic_velocity.y, 5.0f, Mic.mic_velocity.y);
-        ImGui::InputFloat("Vel z", &Mic.mic_velocity.z, 5.0f, Mic.mic_velocity.z);
+        ImGui::InputFloat("Mic_vel x", &Mic.mic_velocity.x, 5.0f, Mic.mic_velocity.x);
+        ImGui::InputFloat("Mic_vel y", &Mic.mic_velocity.y, 5.0f, Mic.mic_velocity.y);
+        ImGui::InputFloat("Mic_vel z", &Mic.mic_velocity.z, 5.0f, Mic.mic_velocity.z);
         ImGui::Text("Zrodlo");
         ImGui::InputFloat("Src x", &Source.src_x, 0.1f, Source.src_x);
         ImGui::InputFloat("Src y", &Source.src_y, 0.1f, Source.src_y);
         ImGui::InputFloat("Src z", &Source.src_z, 0.1f, Source.src_z);
-        ImGui::InputFloat("Vel x", &Source.velocity.x, 5.0f, Source.velocity.x);
-        ImGui::InputFloat("Vel y", &Source.velocity.y, 5.0f, Source.velocity.y);
-        ImGui::InputFloat("Vel z", &Source.velocity.z, 5.0f, Source.velocity.z);
+        ImGui::InputFloat("Src_vel x", &Source.velocity.x, 5.0f, Source.velocity.x);
+        ImGui::InputFloat("Src_vel y", &Source.velocity.y, 5.0f, Source.velocity.y);
+        ImGui::InputFloat("Src_vel z", &Source.velocity.z, 5.0f, Source.velocity.z);
+        ImGui::Text("Basen");
+        ImGui::InputFloat("Cube width", &Cube.width, 2.0f, Cube.width);
+        ImGui::InputFloat("Cube height", &Cube.height, 2.0f, Cube.height);
+        ImGui::InputFloat("Cube depth", &Cube.depth, 2.0f, Cube.depth);
+        ImGui::InputFloat("Cube x_offset", &Cube.x_offset, 2.0f, Cube.x_offset);
+        ImGui::InputFloat("Cube y_offset", &Cube.y_offset, 2.0f, Cube.y_offset);
+        ImGui::InputFloat("Cube z_offset", &Cube.z_offset, 2.0f, Cube.z_offset);
         ImGui::End();
+        
 
 
         ImGui::Render();
