@@ -979,7 +979,7 @@ int main()
         ImGui::NewFrame();
         ImGui::SetWindowSize(ImVec2(200, 200));
 
-        ImGui::Begin("Start/Stop");
+        ImGui::Begin("Start/Stop"); 
         if(ImGui::Button("Start"))
         {
             simulation_running = true;
@@ -989,6 +989,7 @@ int main()
             simulation_running = false;
         }
         ImGui::End();
+
         ImGui::Begin("Parametry");
         ImGui::Text("Mikrofon");
         ImGui::InputFloat("Mic x", &Mic.mic_x, 0.1f, Mic.mic_x);
