@@ -25,6 +25,7 @@
 
 int test = 0;
 bool simulation_running = false;
+std::string file = "sine_100Hz_orig.csv";
 
 // gdzieœ przy sta³ych globalnych
 static constexpr float R0_ATTEN = 0.05f; // [m] – near-field cap (np. 5 cm)
@@ -909,7 +910,7 @@ int main()
     
 
     // Wczytaj plik WAV (podmieñ œcie¿kê na swoj¹)
-    if (!loadCsvSimple("sine_100Hz_orig.csv", ',', /*hasHeader=*/true)) {
+    if (!loadCsvSimple(file, ',', /*hasHeader=*/true)) {
         std::cerr << "CSV: nie wczytano ¿adnych danych\n";
     }
     else {
