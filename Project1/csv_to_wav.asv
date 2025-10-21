@@ -1,0 +1,21 @@
+clc
+clear
+close all
+
+csv_read = readtable(uigetfile({'*.csv','CSV (*.CSV, )'}, 'Wybierz plik z danymi'));
+csv_read = rescale(csv_read, -1, 1);
+figuer
+plot(csv_read);
+grid on;
+
+time = csv_read(:,1);
+data_read = csv_read(:,2);
+fp = 44100;
+
+TT = timetable(data_read, 'RowTimes', seconds(time));
+TT = retime(TT, 'regular', 'mean', 'TimeStep', seconds(1/fp));
+
+t = TT.properties.RowTimes;
+y = rescale(TT.output, -1, 1);
+
+sound(y, fp);

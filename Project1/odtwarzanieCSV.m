@@ -73,7 +73,7 @@ f = Fs * (0:numel(P1)-1) / N;
 figure;
 plot(f, P1, 'LineWidth', 1);
 grid on;
-xlim([0, 1000]);
+xlim([0, 2000]);
 xlabel('Częstotliwość [Hz]');
 ylabel('|X(f)|');
 title('Jednostronne widmo amplitudowe (FFT)');

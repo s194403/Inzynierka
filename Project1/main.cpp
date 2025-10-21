@@ -1357,7 +1357,7 @@ int pruneSlowNodes(float minEnergy)
     kept.reserve(N);
 
     bool only_one_read = false;
-    //if (time_passed > 0.00095) doKill = true;
+    //if (time_passed > 0.00095) doKill = true; //---------usuwanie fali po dotknieciu-------
     int test = 0;
     for (size_t i = 0; i < N; ++i) {
         //nodes[i].energy = nodes[i].energy / nodes[i].path;
@@ -1495,7 +1495,7 @@ int pruneSlowNodes(float minEnergy)
     const bool windowDied = nodes.empty();
 
     if (windowDied) {
-        if (!beginNextWindow() or gWinIdx == 30) {
+        if (!beginNextWindow() or gWinIdx == 5) {
             writeMicCsv("mic_out.csv");    
             resetMicEvents();
         }
