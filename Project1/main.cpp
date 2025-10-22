@@ -25,7 +25,9 @@
 
 int test = 0;
 bool simulation_running = false;
-std::string file = "sine_100Hz_orig.csv";
+std::string file = "kryzys.csv";
+std::string write_file = "kryzys_out.csv";
+int windows_number = 1000;
 
 // gdzieœ przy sta³ych globalnych
 static constexpr float R0_ATTEN = 0.05f; // [m] – near-field cap (np. 5 cm)
@@ -171,8 +173,8 @@ Cuboid_dimensions Obstacle{
 
 //MIKROFON
 struct Micophone {
-    float mic_x = 4.5f;
-    float mic_y = 2.0f;
+    float mic_x = 1.5f;
+    float mic_y = 0.0f;
     float mic_z = 0.0f;
     //glm::vec3 starting_point = glm::vec3(mic_x, mic_y, mic_z);
     glm::vec3 mic_velocity = glm::vec3(00.0f, 000.0f, 0.0f);
@@ -195,9 +197,9 @@ void drawCuboidTransparentSorted(struct Cuboid_dimensions temp_Cube);
 int printOversizedTriangles(float maxArea);
 // Ustawia wêz³y w pozycji Ÿród³a i nadaje im prêdkoœci/kierunki startowe.
 void killAllNodes();
-void buildBuffersFor(const std::vector<node>& verts, const std::vector<Triangle>& tris, MeshGL& m,bool dynamic = true);
+void buildBuffersFor(const std::vector<node>& verts, const std::vector<Triangle>& tris, MeshGL& m, bool dynamic = true);
 void updatePositionsFor(const std::vector<node>& verts, MeshGL& m);
-void drawMesh(const MeshGL& m,const glm::vec3& offset = glm::vec3(0),const glm::vec4& fill = glm::vec4(1.0f, 0.5f, 0.0f, 1.0f),const glm::vec4& wire = glm::vec4(0.0f, 0.0f, 0.0f, 0.6f),float wireWidth = 0.2f);
+void drawMesh(const MeshGL& m, const glm::vec3& offset = glm::vec3(0), const glm::vec4& fill = glm::vec4(1.0f, 0.5f, 0.0f, 1.0f), const glm::vec4& wire = glm::vec4(0.0f, 0.0f, 0.0f, 0.6f), float wireWidth = 0.2f);
 static void buildIcosphereNodesTris(float radius, int subdiv, std::vector<node>& out_nodes, std::vector<Triangle>& out_tris);
 //Zapis do pliku po symulacji
 //int removeSlowNodes(float minSpeed);
@@ -234,7 +236,7 @@ inline void logMicHit(float t_dop, float value) {
 inline void resetMicEvents() { gMicEvents.clear(); }
 
 
-bool writeMicCsv(const std::string& path = "mic_out.csv") {
+bool writeMicCsv(const std::string& path = write_file) {
     if (gMicEvents.empty()) return false;
 
     // 1) posortuj po czasie
@@ -537,7 +539,7 @@ void updatePhysics(float dt, struct Cuboid_dimensions Pool, struct Cuboid_dimens
         // d³ugoœæ przebytego odcinka w tej klatce:
         float stepLen = glm::length(v) * dt;           // (poprawka GLM!)
         float r_prev = std::max(nodes[i].path, R0_ATTEN);
-        nodes[i].path += stepLen*0.01;
+        nodes[i].path += stepLen * 0.01;
         float r_now = std::max(nodes[i].path, R0_ATTEN);
 
         // energia ~ 1/r  (utrzymuje proporcjê niezale¿nie od kroku dt)
@@ -622,7 +624,7 @@ int addMidpoint(int a, int b) {
     midpoint.tEmit = (nodes[a].tEmit + nodes[b].tEmit) * 0.5f;
     midpoint.srcVel = (nodes[a].srcVel + nodes[b].srcVel) * 0.5f;
     midpoint.bounces = nodes[a].bounces;
-    midpoint.suppressUntilT = (nodes[a].suppressUntilT + nodes[b].suppressUntilT)*0.5f;
+    midpoint.suppressUntilT = (nodes[a].suppressUntilT + nodes[b].suppressUntilT) * 0.5f;
     midpoint.path = (nodes[a].path + nodes[b].path) * 0.5f;
     //midpoint.velocity = (nodes[a].velocity + nodes[b].velocity) * 0.5f;
 
@@ -907,7 +909,7 @@ int main()
     }
     glfwMakeContextCurrent(window);
 
-    
+
 
     // Wczytaj plik WAV (podmieñ œcie¿kê na swoj¹)
     if (!loadCsvSimple(file, ',', /*hasHeader=*/true)) {
@@ -932,7 +934,7 @@ int main()
     glfwSetMouseButtonCallback(window, mouse_button_callback);
     glfwSetScrollCallback(window, scroll_callback);
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-    
+
 
     //Rzeczy od ImGui
     IMGUI_CHECKVERSION();
@@ -954,7 +956,7 @@ int main()
 
         glClearColor(0.5f, 0.5f, 0.5f, 0.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        
+
         glm::mat4 projection = glm::perspective(glm::radians(fov), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
         glm::mat4 view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
 
@@ -964,12 +966,12 @@ int main()
         glMatrixMode(GL_MODELVIEW);
         glLoadMatrixf(&view[0][0]);
 
-        
+
         // Oblicz FPS
         //calculateFPS();
         //if (simulation_running)
         //{
-            renderScene();
+        renderScene();
         //}
 
         glfwPollEvents();
@@ -980,12 +982,12 @@ int main()
         ImGui::NewFrame();
         ImGui::SetWindowSize(ImVec2(200, 200));
 
-        ImGui::Begin("Start/Stop"); 
-        if(ImGui::Button("Start"))
+        ImGui::Begin("Start/Stop");
+        if (ImGui::Button("Start"))
         {
             simulation_running = true;
         }
-        if(ImGui::Button("Stop"))
+        if (ImGui::Button("Stop"))
         {
             simulation_running = false;
         }
@@ -1014,7 +1016,7 @@ int main()
         ImGui::InputFloat("Cube y_offset", &Cube.y_offset, 2.0f, Cube.y_offset);
         ImGui::InputFloat("Cube z_offset", &Cube.z_offset, 2.0f, Cube.z_offset);
         ImGui::End();
-        
+
 
 
         ImGui::Render();
@@ -1022,7 +1024,7 @@ int main()
         //---Koniec IMGUI----
 
         glfwSwapBuffers(window);
-        
+
 
     }
 
@@ -1349,7 +1351,7 @@ int pruneSlowNodes(float minEnergy)
 {
     if (nodes.empty()) return 0;
 
-    const float thr2 = abs(minEnergy)/10.0f;
+    const float thr2 = abs(minEnergy) / 10.0f;
     const size_t N = nodes.size();
 
     std::vector<int>  remap(N, -1);
@@ -1452,7 +1454,8 @@ int pruneSlowNodes(float minEnergy)
                     nodes[j].suppressUntilT = std::max(nodes[j].suppressUntilT, blind_until);
                 }
             }
-
+            
+            doKill = true; //usuwaj fale po dotknieciu przez mikrofon
             only_one_read = true;   // jeœli u Ciebie „zu¿ywa” noda po trafieniu
             // (opcjonalnie) debug:
             std::cout << "win=" << wid << "  T=" << T << "\n";
@@ -1494,12 +1497,25 @@ int pruneSlowNodes(float minEnergy)
     // zgasniecie fali
     const bool windowDied = nodes.empty();
 
-    if (windowDied) {
-        if (!beginNextWindow() or gWinIdx == 5) {
-            writeMicCsv("mic_out.csv");    
-            resetMicEvents();
-        }
+    /*
+    if (gWinIdx == 1300)
+    {
+        writeMicCsv("mic_out.csv");
+        resetMicEvents();
+        simulation_running = false;
     }
+    */
+    
+    if (windowDied) {
+        if (!beginNextWindow() or gWinIdx == windows_number) {
+            writeMicCsv(write_file);
+            resetMicEvents();
+            simulation_running = false;
+        }
+        rewind_punkt = false;
+    }
+
+    
 
     return (int)(N - nodes.size());
 }

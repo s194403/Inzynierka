@@ -2,18 +2,21 @@ clc
 close all
 clear
 
-[data_read, fp] = audioread(uigetfile({'*.wav','WAV (*.wav, )'}, 'Wybierz plik z danymi'));
+file = uigetfile({'*.wav','WAV (*.wav, )'}, 'Wybierz plik z danymi');
+
+[data_read, fp] = audioread(file);
+info = audioinfo(file)
 
 dt = 1/fp;
 
 time = (dt : dt : size(data_read)/fp);
 time_write = time';
 
-data_write = (data_read(:,1) + data_read(:,2)) /2;
+data_write = (data_read(:,1)); % + data_read(:,2)) /2; %w zaleznosci czy mono czy stereo
 
 Table = table(time_write, data_write);
 
-writetable(Table, 'sample.csv');
+writetable(Table, 'kryzys.csv');
 
 X = fft(data_write);
 
@@ -25,4 +28,3 @@ plot((fp*fp)/N*time, abs(X));
 xlim([0 2000]);
 xlabel('Czestotliwosc [Hz]');
 grid on;
-
