@@ -27,7 +27,11 @@ int test = 0;
 bool simulation_running = false;
 std::string file = "kryzys.csv";
 std::string write_file = "kryzys_out.csv";
-int windows_number = 1000;
+int windows_number = 20;
+
+int ktore_odbicie = 0;
+float prev_T2_time = 0;
+float T2 = 0;
 
 // gdzieœ przy sta³ych globalnych
 static constexpr float R0_ATTEN = 0.05f; // [m] – near-field cap (np. 5 cm)
@@ -136,6 +140,7 @@ struct node {
     float     suppressUntilT = -1e30f; // NOWE: nie logowaæ, jeœli T_hit <= suppressUntilT
 
     float path = 0.0f;
+    float doppler = 1.0f;
 };
 
 std::vector<node> nodes;
@@ -1359,7 +1364,7 @@ int pruneSlowNodes(float minEnergy)
     kept.reserve(N);
 
     bool only_one_read = false;
-    //if (time_passed > 0.00095) doKill = true; //---------usuwanie fali po dotknieciu-------
+    //if (time_passed > 0.00095) doKill = true;
     int test = 0;
     for (size_t i = 0; i < N; ++i) {
         //nodes[i].energy = nodes[i].energy / nodes[i].path;
@@ -1374,23 +1379,63 @@ int pruneSlowNodes(float minEnergy)
 
         if (hitMic) {
             const float win_s = window_ms / 1000.0f;         // 0.005 s
-            const float T = nodes[i].tEmit + time_passed; // czas przyjœcia pocz¹tku okna
+            float T = nodes[i].tEmit + time_passed; // czas przyjœcia pocz¹tku okna
             const int   wid = gWinIdx;              // ID okna z NODA (nie gWinIdx!)
-            if (nodes[i].bounces == 3)
-            {
-                int siema = 2;
-            }
+            //if (nodes[i].bounces != 1) continue;
 
             // Je¿eli ten node jest czasowo st³umiony — nie loguj do CSV (ale „zu¿yj” go)
             if (T <= nodes[i].suppressUntilT) {
                 only_one_read = true;
                 continue;
             }
+            //T = std::ceil((double)T * 100000.0) / 100000.0;
 
+            /*if (nodes[i].bounces == 0 && T < prev_T2_time)
+            {
+                T = prev_T2_time;
+            }*/
+
+            ktore_odbicie++;
             // --- DOPPLER (rozci¹gniêcie/œciœniêcie osi czasu okna) ---
+            //float predkosc = glm::length(nodes[i].velocity);
             const glm::vec3 n_hat = glm::normalize(nodes[i].velocity);
-            const float     v_mic_proj = glm::dot(Mic.mic_velocity, n_hat);
-            const float     T2 = T + win_s * (1.0f + v_mic_proj / SOUND_V);
+            const float     v_mic_proj = glm::dot(Mic.mic_velocity, n_hat) + 0.0415 * glm::length(Mic.mic_velocity);
+            const float     v_mic_proj2 = glm::dot(n_hat, Mic.mic_velocity);
+            const float v_src_proj = -glm::dot(nodes[i].srcVel, nodes[i].nEmit); // + gdy Ÿród³o jedzie w stronê propagacji
+
+            //T2 = T + win_s * (1.0f + v_mic_proj / SOUND_V);
+            float new_vel = nodes[i].path / time_passed;
+            //T2 = T + win_s * ((new_vel + v_src_proj) / (new_vel - v_mic_proj));
+            float proba = T + win_s * ((SOUND_V + v_src_proj) / (SOUND_V - v_mic_proj));
+            //T2 = T + win_s * ((SOUND_V + v_src_proj) / (SOUND_V - v_mic_proj)) - 10*dt*(nodes[i].bounces+1);
+            //T2 = T + win_s * ((new_vel + v_src_proj) / (new_vel - v_mic_proj));
+            float vel_test = glm::length(nodes[i].velocity);
+            //float vel_test2 = nodes[i].velocity.length();
+            T2 = T + win_s * nodes[i].doppler * ((vel_test + v_src_proj) / (vel_test - v_mic_proj));
+            //T2 = std::ceil((double)T2 * 100000.0) / 100000.0;
+
+            //if (!rewind_punkt)
+            //{
+            //    glm::vec3 droga = glm::vec3(Mic.mic_x, Mic.mic_y, Mic.mic_z) - Mic.rewind_point;
+            //    float droga2 = glm::length(droga);
+            //    //T2 = T + (win_s * (predkosc + v_src_proj) - droga2) / (predkosc - v_mic_proj);
+            //    //T2 = T + nodes[i].doppler * (win_s * (SOUND_V + v_src_proj) - droga2) / (SOUND_V - v_mic_proj);
+            //}
+            //T2 = (float)(std::trunc((double)T2 * 100000.0) / 100000.0);
+            //prev_T2_time = T2;
+
+            //float doppler = ((SOUND_V + v_src_proj) / (SOUND_V - v_mic_proj));
+            //T2 = T + win_s * 1 / doppler;
+
+            // --- CLAMP czasu startu okna, gdy "oddalamy siê" (scale < 1) ---
+            if (T < prev_T2_time) {
+                //T = prev_T2_time;               // wymuœ ci¹g³oœæ z poprzednim T2
+                //T2 = T + win_s * doppler;          // zachowaj ten sam wspó³czynnik Dopplera
+                int siema = 3;
+            }
+
+
+
             float           scale = (T2 - T) / win_s;
             if (scale <= 0.0f) scale = 1e-4f;
 
@@ -1398,12 +1443,80 @@ int pruneSlowNodes(float minEnergy)
             if (wid >= 0 && wid < (int)gWinPackets.size()) {
                 const auto& wp = gWinPackets[wid];
                 const float  Awin = (wp.amplitude != 0.0f) ? wp.amplitude : 1e-12f;
-                const float  scaleAmp = nodes[i].energy / Awin;
+                //const float  scaleAmp = nodes[i].energy / Awin;
+                // --- przed pêtl¹ po j ---
+                constexpr float TS = 1e-5f;   // odstêp czasu jaki chcemy wymuszaæ
+                constexpr float EPS = 2e-7f;   // ma³a tolerancja na b³êdy binarne
+                float t_last = std::numeric_limits<float>::quiet_NaN();
+                float v_last = 0.0f;
+
+                // --- korekta amplitudy wewn¹trz okna 5 ms (zmiana zasiêgu r(t)) ---
+                const float win_s = window_ms / 1000.0f;      // 0.005 s
+                const float r0 = std::max(nodes[i].path, R0_ATTEN);
+
+
+                // U Ciebie: v_mic_proj = dot(Mic.mic_velocity, n_hat)
+                //           v_src_proj = -dot(nodes[i].srcVel, nodes[i].nEmit)  // ju¿ policzone wy¿ej
+                const float rdot = v_mic_proj + v_src_proj;
+
+
+                const float PATH_SCALE = 0.00001f;
+
+
                 for (size_t j = 0; j < wp.times.size(); ++j) {
-                    float t_abs = T + scale * wp.times[j];     // [T, T2] po Dopplerze
-                    float val = wp.values[j] * scaleAmp;     // amplituda po odbiciach
-                    //t_abs += nodes[i].bounces * 0.1f;          // jeœli chcesz zachowaæ offset odbiæ
-                    logMicHit(q5(t_abs), val);
+                    float t_abs = T + scale * wp.times[j];     // [T, T2] po Dopplerz
+
+
+                    const float  scaleAmp = nodes[i].energy / Awin;
+
+                    // czas wzglêdny w *odbiorze*, wzglêdem œrodka okna (¿eby nie biasowaæ ca³oœci)
+                    float t_loc_rec = scale * (wp.times[j] - 0.5f * win_s);
+
+                    // efektywny zasiêg dla tej próbki (spójny z Twoim units: PATH_SCALE)
+                    float r_eff = std::max(r0 + PATH_SCALE * rdot * t_loc_rec, R0_ATTEN);
+
+
+                    float intra = r0 / r_eff;
+
+                    // dotychczas: float val = wp.values[j] * scaleAmp;
+                    float val = (wp.values[j] * scaleAmp) * intra;
+
+                    //float val = wp.values[j] * scaleAmp;     // amplituda po odbiciach
+                    //t_abs += nodes[i].bounces * 0.2f;          // jeœli chcesz zachowaæ offset odbiæ
+                    //t_abs += gWinIdx * 0.1f;
+                    //t_abs += ktore_odbicie * 0.05f;
+                    if (t_abs >= 0.00977f)
+                    {
+                        t_abs = t_abs;
+                        int i = 2;
+                    }
+                    float t_out = q5(t_abs);
+                    if (t_out == t_last) continue;
+                    // jeœli mamy poprzedni punkt i luka jest wiêksza ni¿ TS, to do³ó¿ brakuj¹ce kroki
+                    if (!std::isnan(t_last)) {
+                        float gap = t_out - t_last;
+
+                        if (gap > TS + EPS) {
+                            // ile kroków TS mieœci siê w luce? (ile „szczelin” + 1)
+                            int steps = (int)std::floor((gap + EPS) / TS);
+
+                            // wstaw brakuj¹ce punkty: t_last + s*TS, s = 1 .. steps-1
+                            for (int s = 1; s < steps; ++s) {
+                                float tf = t_last + s * TS;
+                                // liniowa interpolacja wartoœci miêdzy (t_last,v_last) a (t_out,val)
+                                float a = (tf - t_last) / gap;
+                                float vf = v_last + a * (val - v_last);
+                                logMicHit(q5(tf), vf);
+                            }
+                        }
+                    }
+
+                    // zapisz punkt bie¿¹cy
+                    logMicHit(q5(t_out), val);
+
+                    // aktualizuj „ostatni zapisany”
+                    t_last = t_out;
+                    v_last = val;
                 }
             }
             else {
@@ -1454,11 +1567,12 @@ int pruneSlowNodes(float minEnergy)
                     nodes[j].suppressUntilT = std::max(nodes[j].suppressUntilT, blind_until);
                 }
             }
-            
-            doKill = true; //usuwaj fale po dotknieciu przez mikrofon
+
+            //doKill = true;
             only_one_read = true;   // jeœli u Ciebie „zu¿ywa” noda po trafieniu
             // (opcjonalnie) debug:
             std::cout << "win=" << wid << "  T=" << T << "\n";
+            //std::cout << ktore_odbicie << std::endl;
             continue;
         }
 
@@ -1472,6 +1586,8 @@ int pruneSlowNodes(float minEnergy)
             kept.push_back(cp);
         }
     }
+    // pamiêtaj najnowszy koniec bie¿¹cej ramki
+    prev_T2_time = T2;
 
     // Triangles: zostaw tylko te, które przetrwa³y
     std::vector<Triangle> newTris;
@@ -1497,15 +1613,6 @@ int pruneSlowNodes(float minEnergy)
     // zgasniecie fali
     const bool windowDied = nodes.empty();
 
-    /*
-    if (gWinIdx == 1300)
-    {
-        writeMicCsv("mic_out.csv");
-        resetMicEvents();
-        simulation_running = false;
-    }
-    */
-    
     if (windowDied) {
         if (!beginNextWindow() or gWinIdx == windows_number) {
             writeMicCsv(write_file);
@@ -1514,8 +1621,6 @@ int pruneSlowNodes(float minEnergy)
         }
         rewind_punkt = false;
     }
-
-    
 
     return (int)(N - nodes.size());
 }
