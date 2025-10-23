@@ -1619,7 +1619,6 @@ int pruneSlowNodes(float minEnergy)
             resetMicEvents();
             simulation_running = false;
         }
-        rewind_punkt = false;
     }
 
     return (int)(N - nodes.size());
