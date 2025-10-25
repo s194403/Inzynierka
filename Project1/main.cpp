@@ -25,9 +25,9 @@
 
 int test = 0;
 bool simulation_running = false;
-std::string file = "kryzys.csv";
-std::string write_file = "kryzys_out.csv";
-int windows_number = 20;
+std::string file = "new_signal.csv";
+std::string write_file = "new_signal_out.csv";
+int windows_number = 5;
 
 int ktore_odbicie = 0;
 float prev_T2_time = 0;
@@ -182,7 +182,7 @@ struct Micophone {
     float mic_y = 0.0f;
     float mic_z = 0.0f;
     //glm::vec3 starting_point = glm::vec3(mic_x, mic_y, mic_z);
-    glm::vec3 mic_velocity = glm::vec3(00.0f, 000.0f, 0.0f);
+    glm::vec3 mic_velocity = glm::vec3(100.0f, 000.0f, 0.0f);
     glm::vec3 rewind_point = glm::vec3(mic_x, mic_y, mic_z);
     glm::vec3 rewind_vel = mic_velocity;
 };
@@ -1372,7 +1372,7 @@ int pruneSlowNodes(float minEnergy)
         //const glm::vec3 v = nodes[i].velocity;
         //const float v2 = glm::dot(v, v);
 
-        bool EnergyEnough = (E >= thr2);
+        bool EnergyEnough = (E > thr2);
         //if (nodes[i].bounces > 1) EnergyEnough = false;
         //bool EnergyEnough = true; // chwilowo do testow TO DO: ODKOMENTOWAC
         const bool hitMic = touchesMicrophone(nodes[i].position);
@@ -1618,6 +1618,7 @@ int pruneSlowNodes(float minEnergy)
             writeMicCsv(write_file);
             resetMicEvents();
             simulation_running = false;
+            std::cout << "KONIEC SYMULACJI" << std::endl;
         }
     }
 
