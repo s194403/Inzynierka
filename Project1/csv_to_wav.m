@@ -10,6 +10,7 @@ dt = 1/fp;
 time = (dt : dt : size(data_read)/fp)';
 
 X = fft(data_read);
+X = X/max(X);
 
 N = length(data_read);
 

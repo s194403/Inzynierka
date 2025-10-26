@@ -27,7 +27,7 @@ int test = 0;
 bool simulation_running = false;
 std::string file = "new_signal.csv";
 std::string write_file = "new_signal_out.csv";
-int windows_number = 5;
+int windows_number = 50;
 
 int ktore_odbicie = 0;
 float prev_T2_time = 0;
@@ -167,7 +167,7 @@ struct Cuboid_dimensions {
     float z_offset = 0.0f;
 };
 Cuboid_dimensions Cube{
-    18.0f, 6.0f, 20.0f,  // width, height, depth
+    100.0f, 100.0f, 100.0f,  // width, height, depth
     0.0f,   0.0f,    0.0f        // x/y/z offset
 };
 
@@ -1568,7 +1568,7 @@ int pruneSlowNodes(float minEnergy)
                 }
             }
 
-            //doKill = true;
+            doKill = true;
             only_one_read = true;   // jeœli u Ciebie „zu¿ywa” noda po trafieniu
             // (opcjonalnie) debug:
             std::cout << "win=" << wid << "  T=" << T << "\n";

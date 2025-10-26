@@ -4,10 +4,10 @@ close all
 
 fs = 100e3; %czestotiwosc probkowania
 f_signal = 1e4; %czestotliwosc sygnalu
-duration = 5; %czas trwania sygnalu w ms
+duration = 50; %czas trwania sygnalu w ms
 duration = duration/1000;
 
-ile_probek = 1; %przez jaki czas ma byc sygnal, reszta zera 
+ile_probek = 50; %przez jaki czas ma byc sygnal, reszta zera 
 powtorzenia = 10; %ile razy powtorzyc sygnal
 
 A = 1; %amplituda
@@ -40,6 +40,7 @@ ylabel('Amplituda');
 ylim([-1.1 1.1]);
 
 X = fft(repeat_signal);
+X = X/max(X);
 N = length(repeat_signal);
 
 figure
