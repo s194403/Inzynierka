@@ -5,27 +5,29 @@ close all
 csv_read = readmatrix(uigetfile({'*.csv','CSV (*.CSV, )'}, 'Wybierz plik z danymi'));
 
 data_read = csv_read(:,2);
-fp = 48000;
+fp = 100e3;
 dt = 1/fp;
 time = (dt : dt : size(data_read)/fp)';
 
 X = fft(data_read);
+X = X/max(X);
 
 N = length(data_read);
 
 figure
-title('FFT sygnału');
 plot((fp*fp)/N*time, abs(X));
-xlim([0 2000]);
+title('FFT sygnału');
+xlim([0 fp/2]);
 xlabel('Czestotliwosc [Hz]');
 grid on;
 
 
 figure
-title('Podglad sygnału');
 plot(time, data_read);
+title('Podglad sygnału');
 grid on;
 xlabel('Czas [s]');
 ylabel('Amplituda');
+ylim([-1.1 1.1]);
 
-sound(data_read, fp);
+%sound(data_read, fp);
